@@ -22,15 +22,31 @@ WORKDIR /app/chat
 COPY chat/ .
 RUN npm install && npm run build
 
+# Python dependencies stage
+FROM python:3.11-slim AS python-deps
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
 # Final stage
-FROM alpine:latest
+FROM python:3.11-slim
 
 # Install runtime dependencies
-RUN apk --no-cache add ca-certificates tzdata nodejs npm
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    tzdata \
+    nodejs \
+    npm \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install agent CLIs
 RUN npm install -g @musistudio/claude-code-router
 RUN npm install -g @factory-ai/droid
+
+# Copy Python dependencies
+COPY --from=python-deps /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=python-deps /usr/local/bin /usr/local/bin
 
 # Create non-root user
 RUN addgroup -g 1001 -S agentapi && \
@@ -42,6 +58,10 @@ RUN mkdir -p /workspaces && chown -R agentapi:agentapi /workspaces
 # Copy binary and assets
 COPY --from=builder /app/agentapi /usr/local/bin/
 COPY --from=chat-builder /app/chat/out /usr/local/share/agentapi/chat
+
+# Copy Python MCP wrapper
+COPY lib/mcp/fastmcp_wrapper.py /usr/local/bin/
+RUN chmod +x /usr/local/bin/fastmcp_wrapper.py
 
 # Set working directory
 WORKDIR /workspaces

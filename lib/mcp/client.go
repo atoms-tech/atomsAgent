@@ -2,17 +2,35 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"os/exec"
+	"sync"
 	"time"
-
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Client represents an MCP client wrapper
+// Tool represents an MCP tool
+type Tool struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	InputSchema map[string]any         `json:"inputSchema"`
+	OutputSchema map[string]any        `json:"outputSchema,omitempty"`
+}
+
+// Resource represents an MCP resource
+type Resource struct {
+	URI         string `json:"uri"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	MimeType    string `json:"mimeType,omitempty"`
+}
+
+// Prompt represents an MCP prompt
+type Prompt struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	Arguments   map[string]any         `json:"arguments,omitempty"`
+}
+
+// Client represents an MCP client wrapper using FastMCP
 type Client struct {
 	ID       string
 	Name     string
@@ -21,234 +39,146 @@ type Client struct {
 	Config   map[string]any
 	Auth     map[string]string
 	
-	// MCP client components
-	client    *mcp.Client
-	session   *mcp.Session
-	transport mcp.Transport
+	// FastMCP client
+	fastMCPClient *FastMCPClient
 	
 	// Connection state
 	connected bool
 	lastError error
+	mutex     sync.RWMutex
 }
 
-// NewClient creates a new MCP client
-func NewClient(id, name, mcpType, endpoint string, config map[string]any, auth map[string]string) *Client {
+// NewClient creates a new MCP client using FastMCP
+func NewClient(id, name, mcpType, endpoint string, config map[string]any, auth map[string]string) (*Client, error) {
+	fastMCPClient, err := NewFastMCPClient()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create FastMCP client: %w", err)
+	}
+	
 	return &Client{
-		ID:       id,
-		Name:     name,
-		Type:     mcpType,
-		Endpoint: endpoint,
-		Config:   config,
-		Auth:     auth,
-	}
+		ID:            id,
+		Name:          name,
+		Type:          mcpType,
+		Endpoint:      endpoint,
+		Config:        config,
+		Auth:          auth,
+		fastMCPClient: fastMCPClient,
+	}, nil
 }
 
-// Connect establishes connection to the MCP server
+// Connect establishes connection to the MCP server using FastMCP
 func (c *Client) Connect(ctx context.Context) error {
-	switch c.Type {
-	case "http":
-		return c.connectHTTP(ctx)
-	case "sse":
-		return c.connectSSE(ctx)
-	case "stdio":
-		return c.connectStdio(ctx)
-	default:
-		return fmt.Errorf("unsupported MCP type: %s", c.Type)
-	}
-}
-
-// connectHTTP connects to an HTTP-based MCP server
-func (c *Client) connectHTTP(ctx context.Context) error {
-	// Create HTTP transport
-	transport := &HTTPTransport{
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	
+	config := MCPConfig{
+		ID:       c.ID,
+		Name:     c.Name,
+		Type:     c.Type,
 		Endpoint: c.Endpoint,
-		Auth:     c.Auth,
-		Client:   &http.Client{Timeout: 30 * time.Second},
-	}
-	
-	// Create MCP client
-	c.client = mcp.NewClient(&mcp.Implementation{
-		Name:    c.Name,
-		Version: "1.0.0",
-	}, nil)
-	
-	// Connect
-	session, err := c.client.Connect(ctx, transport, nil)
-	if err != nil {
-		c.lastError = err
-		return fmt.Errorf("failed to connect to HTTP MCP server: %w", err)
-	}
-	
-	c.session = session
-	c.transport = transport
-	c.connected = true
-	return nil
-}
-
-// connectSSE connects to an SSE-based MCP server
-func (c *Client) connectSSE(ctx context.Context) error {
-	// Create SSE transport
-	transport := &SSETransport{
-		Endpoint: c.Endpoint,
+		AuthType: c.getAuthType(),
+		Config:   c.Config,
 		Auth:     c.Auth,
 	}
 	
-	// Create MCP client
-	c.client = mcp.NewClient(&mcp.Implementation{
-		Name:    c.Name,
-		Version: "1.0.0",
-	}, nil)
-	
-	// Connect
-	session, err := c.client.Connect(ctx, transport, nil)
-	if err != nil {
+	if err := c.fastMCPClient.ConnectMCP(ctx, config); err != nil {
 		c.lastError = err
-		return fmt.Errorf("failed to connect to SSE MCP server: %w", err)
+		return fmt.Errorf("failed to connect to MCP server: %w", err)
 	}
 	
-	c.session = session
-	c.transport = transport
 	c.connected = true
 	return nil
 }
 
-// connectStdio connects to a stdio-based MCP server
-func (c *Client) connectStdio(ctx context.Context) error {
-	// Parse command from config
-	command, ok := c.Config["command"].(string)
-	if !ok {
-		return fmt.Errorf("stdio MCP requires 'command' in config")
+// getAuthType determines the authentication type from config
+func (c *Client) getAuthType() string {
+	if c.Auth["token"] != "" {
+		return "bearer"
 	}
-	
-	// Create command transport
-	cmd := exec.CommandContext(ctx, command)
-	transport := &mcp.CommandTransport{Command: cmd}
-	
-	// Create MCP client
-	c.client = mcp.NewClient(&mcp.Implementation{
-		Name:    c.Name,
-		Version: "1.0.0",
-	}, nil)
-	
-	// Connect
-	session, err := c.client.Connect(ctx, transport, nil)
-	if err != nil {
-		c.lastError = err
-		return fmt.Errorf("failed to connect to stdio MCP server: %w", err)
+	if c.Auth["client_id"] != "" {
+		return "oauth"
 	}
-	
-	c.session = session
-	c.transport = transport
-	c.connected = true
-	return nil
+	return "none"
 }
 
-// CallTool calls a tool on the MCP server
-func (c *Client) CallTool(ctx context.Context, toolName string, arguments map[string]any) (*mcp.CallToolResult, error) {
-	if !c.connected || c.session == nil {
+// CallTool calls a tool on the MCP server using FastMCP
+func (c *Client) CallTool(ctx context.Context, toolName string, arguments map[string]any) (map[string]any, error) {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+	
+	if !c.connected {
 		return nil, fmt.Errorf("MCP client not connected")
 	}
 	
-	params := &mcp.CallToolParams{
-		Name:      toolName,
-		Arguments: arguments,
-	}
-	
-	return c.session.CallTool(ctx, params)
+	return c.fastMCPClient.CallTool(ctx, c.ID, toolName, arguments)
 }
 
-// ListTools lists available tools from the MCP server
-func (c *Client) ListTools(ctx context.Context) ([]*mcp.Tool, error) {
-	if !c.connected || c.session == nil {
+// ListTools lists available tools from the MCP server using FastMCP
+func (c *Client) ListTools(ctx context.Context) ([]Tool, error) {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+	
+	if !c.connected {
 		return nil, fmt.Errorf("MCP client not connected")
 	}
 	
-	return c.session.ListTools(ctx)
+	return c.fastMCPClient.ListTools(ctx, c.ID)
 }
 
-// GetResources lists available resources from the MCP server
-func (c *Client) GetResources(ctx context.Context) ([]*mcp.Resource, error) {
-	if !c.connected || c.session == nil {
+// GetResources lists available resources from the MCP server using FastMCP
+func (c *Client) GetResources(ctx context.Context) ([]Resource, error) {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+	
+	if !c.connected {
 		return nil, fmt.Errorf("MCP client not connected")
 	}
 	
-	return c.session.ListResources(ctx)
+	return c.fastMCPClient.ListResources(ctx, c.ID)
 }
 
-// ReadResource reads a resource from the MCP server
-func (c *Client) ReadResource(ctx context.Context, uri string) (*mcp.ReadResourceResult, error) {
-	if !c.connected || c.session == nil {
+// ReadResource reads a resource from the MCP server using FastMCP
+func (c *Client) ReadResource(ctx context.Context, uri string) (map[string]any, error) {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+	
+	if !c.connected {
 		return nil, fmt.Errorf("MCP client not connected")
 	}
 	
-	params := &mcp.ReadResourceParams{URI: uri}
-	return c.session.ReadResource(ctx, params)
+	return c.fastMCPClient.ReadResource(ctx, c.ID, uri)
 }
 
-// Disconnect closes the MCP connection
+// Disconnect closes the MCP connection using FastMCP
 func (c *Client) Disconnect() error {
-	if c.session != nil {
-		c.session.Close()
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	
+	if c.connected {
+		if err := c.fastMCPClient.DisconnectMCP(context.Background(), c.ID); err != nil {
+			return fmt.Errorf("failed to disconnect MCP client: %w", err)
+		}
+		c.connected = false
 	}
-	c.connected = false
+	
 	return nil
 }
 
 // IsConnected returns whether the client is connected
 func (c *Client) IsConnected() bool {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
 	return c.connected
 }
 
 // GetLastError returns the last connection error
 func (c *Client) GetLastError() error {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
 	return c.lastError
 }
 
-// HTTPTransport implements MCP transport over HTTP
-type HTTPTransport struct {
-	Endpoint string
-	Auth     map[string]string
-	Client   *http.Client
-}
-
-func (t *HTTPTransport) Send(ctx context.Context, message json.RawMessage) (json.RawMessage, error) {
-	req, err := http.NewRequestWithContext(ctx, "POST", t.Endpoint, nil)
-	if err != nil {
-		return nil, err
-	}
-	
-	// Add authentication headers
-	for key, value := range t.Auth {
-		req.Header.Set(key, value)
-	}
-	
-	req.Header.Set("Content-Type", "application/json")
-	
-	resp, err := t.Client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP error %d: %s", resp.StatusCode, string(body))
-	}
-	
-	return json.RawMessage(body), nil
-}
-
-// SSETransport implements MCP transport over Server-Sent Events
-type SSETransport struct {
-	Endpoint string
-	Auth     map[string]string
-}
-
-func (t *SSETransport) Send(ctx context.Context, message json.RawMessage) (json.RawMessage, error) {
-	// TODO: Implement SSE transport
-	return nil, fmt.Errorf("SSE transport not yet implemented")
+// Close closes the underlying FastMCP client
+func (c *Client) Close() error {
+	return c.fastMCPClient.Close()
 }
