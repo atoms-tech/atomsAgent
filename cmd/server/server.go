@@ -34,25 +34,33 @@ const (
 	AgentTypeAuggie   AgentType = msgfmt.AgentTypeAuggie
 	AgentTypeAmazonQ  AgentType = msgfmt.AgentTypeAmazonQ
 	AgentTypeOpencode AgentType = msgfmt.AgentTypeOpencode
+	AgentTypeWarp     AgentType = msgfmt.AgentTypeWarp
+	AgentTypeDroid    AgentType = msgfmt.AgentTypeDroid
+	AgentTypeCCRouter AgentType = msgfmt.AgentTypeCCRouter
 	AgentTypeCustom   AgentType = msgfmt.AgentTypeCustom
 )
 
 // agentTypeAliases contains the mapping of possible input agent type strings to their canonical AgentType values
 var agentTypeAliases = map[string]AgentType{
-	"claude":       AgentTypeClaude,
-	"goose":        AgentTypeGoose,
-	"aider":        AgentTypeAider,
-	"codex":        AgentTypeCodex,
-	"gemini":       AgentTypeGemini,
-	"copilot":      AgentTypeCopilot,
-	"amp":          AgentTypeAmp,
-	"auggie":       AgentTypeAuggie,
-	"cursor":       AgentTypeCursor,
-	"cursor-agent": AgentTypeCursor,
-	"q":            AgentTypeAmazonQ,
-	"amazonq":      AgentTypeAmazonQ,
-	"opencode":     AgentTypeOpencode,
-	"custom":       AgentTypeCustom,
+	"claude":         AgentTypeClaude,
+	"goose":          AgentTypeGoose,
+	"aider":          AgentTypeAider,
+	"codex":          AgentTypeCodex,
+	"gemini":         AgentTypeGemini,
+	"copilot":        AgentTypeCopilot,
+	"amp":            AgentTypeAmp,
+	"auggie":         AgentTypeAuggie,
+	"cursor":         AgentTypeCursor,
+	"cursor-agent":   AgentTypeCursor,
+	"q":              AgentTypeAmazonQ,
+	"amazonq":        AgentTypeAmazonQ,
+	"opencode":       AgentTypeOpencode,
+	"warp":           AgentTypeWarp,
+	"warp-preview":   AgentTypeWarp,
+	"droid":          AgentTypeDroid,
+	"ccrouter":       AgentTypeCCRouter,
+	"ccr":            AgentTypeCCRouter,
+	"custom":         AgentTypeCustom,
 }
 
 func parseAgentType(firstArg string, agentTypeVar string) (AgentType, error) {

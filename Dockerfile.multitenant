@@ -1,0 +1,60 @@
+# Multi-tenant AgentAPI Dockerfile
+FROM golang:1.21-alpine AS builder
+
+# Install build dependencies
+RUN apk add --no-cache git ca-certificates tzdata
+
+WORKDIR /app
+
+# Copy go mod files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the application
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o agentapi main.go
+
+# Build chat UI
+FROM node:18-alpine AS chat-builder
+WORKDIR /app/chat
+COPY chat/ .
+RUN npm install && npm run build
+
+# Final stage
+FROM alpine:latest
+
+# Install runtime dependencies
+RUN apk --no-cache add ca-certificates tzdata nodejs npm
+
+# Install agent CLIs
+RUN npm install -g @musistudio/claude-code-router
+RUN npm install -g @factory-ai/droid
+
+# Create non-root user
+RUN addgroup -g 1001 -S agentapi && \
+    adduser -u 1001 -S agentapi -G agentapi
+
+# Create workspace directory
+RUN mkdir -p /workspaces && chown -R agentapi:agentapi /workspaces
+
+# Copy binary and assets
+COPY --from=builder /app/agentapi /usr/local/bin/
+COPY --from=chat-builder /app/chat/out /usr/local/share/agentapi/chat
+
+# Set working directory
+WORKDIR /workspaces
+
+# Switch to non-root user
+USER agentapi
+
+# Expose port
+EXPOSE 3284
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:3284/status || exit 1
+
+# Default command
+CMD ["agentapi", "server", "--port=3284"]

@@ -244,6 +244,9 @@ const (
 	AgentTypeAuggie   AgentType = "auggie"
 	AgentTypeAmazonQ  AgentType = "amazonq"
 	AgentTypeOpencode AgentType = "opencode"
+	AgentTypeWarp     AgentType = "warp"
+	AgentTypeDroid    AgentType = "droid"
+	AgentTypeCCRouter AgentType = "ccrouter"
 	AgentTypeCustom   AgentType = "custom"
 )
 
@@ -292,6 +295,12 @@ func FormatAgentMessage(agentType AgentType, message string, userInput string) s
 		return formatGenericMessage(message, userInput, agentType)
 	case AgentTypeOpencode:
 		return formatOpencodeMessage(message, userInput)
+	case AgentTypeWarp:
+		return formatGenericMessage(message, userInput, agentType)
+	case AgentTypeDroid:
+		return formatGenericMessage(message, userInput, agentType)
+	case AgentTypeCCRouter:
+		return formatGenericMessage(message, userInput, agentType)
 	case AgentTypeCustom:
 		return formatGenericMessage(message, userInput, agentType)
 	default:

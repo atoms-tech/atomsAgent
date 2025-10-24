@@ -65,7 +65,7 @@ export interface FileUploadResponse {
   filePath?: string;
 }
 
-export type AgentType = "claude" | "goose" | "aider" | "gemini" | "amp" | "codex" | "cursor" | "cursor-agent" | "copilot" | "auggie" | "amazonq" | "opencode" | "custom" | "unknown";
+export type AgentType = "claude" | "goose" | "aider" | "gemini" | "amp" | "codex" | "cursor" | "cursor-agent" | "copilot" | "auggie" | "amazonq" | "opencode" | "warp" | "droid" | "ccrouter" | "ccr" | "custom" | "unknown";
 
 export type AgentColorDisplayNamePair = {
   displayName: string;
@@ -84,6 +84,10 @@ export const AgentType: Record<Exclude<AgentType, "unknown">, AgentColorDisplayN
   auggie: {displayName: "Auggie"},
   amazonq: {displayName: "Amazon Q"},
   opencode: {displayName: "Opencode"},
+  warp: {displayName: "Warp"},
+  droid: {displayName: "Droid"},
+  ccrouter: {displayName: "CCRouter"},
+  ccr: {displayName: "CCRouter"},
   custom: { displayName: "Custom"}
 }
 

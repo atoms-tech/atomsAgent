@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  agentapi:
+    build:
+      context: .
+      dockerfile: Dockerfile.multitenant
+    ports:
+      - "3284:3284"
+    environment:
+      - AGENTAPI_PORT=3284
+      - AGENTAPI_ALLOWED_HOSTS=*
+      - AGENTAPI_ALLOWED_ORIGINS=*
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID}
+      - GCP_SECRET_MANAGER_KEY=${GCP_SECRET_MANAGER_KEY}
+    volumes:
+      - agentapi_workspaces:/workspaces
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3284/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Redis for caching (optional)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+
+  # Nginx reverse proxy (optional)
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - agentapi
+    restart: unless-stopped
+
+volumes:
+  agentapi_workspaces:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  default:
+    driver: bridge

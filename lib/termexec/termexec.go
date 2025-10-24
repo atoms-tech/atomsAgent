@@ -22,6 +22,12 @@ type Process struct {
 	execCmd          *exec.Cmd
 	screenUpdateLock sync.RWMutex
 	lastScreenUpdate time.Time
+	// Process state management
+	processStateLock sync.RWMutex
+	processTerminated bool
+	processError      error
+	// Notification channel for process termination
+	terminationChan   chan struct{}
 }
 
 type StartProcessConfig struct {
@@ -46,7 +52,11 @@ func StartProcess(ctx context.Context, args StartProcessConfig) (*Process, error
 		return nil, err
 	}
 
-	process := &Process{xp: xp, execCmd: execCmd}
+	process := &Process{
+		xp:              xp, 
+		execCmd:         execCmd,
+		terminationChan: make(chan struct{}),
+	}
 
 	go func() {
 		// HACK: Working around xpty concurrency limitations
@@ -75,17 +85,42 @@ func StartProcess(ctx context.Context, args StartProcessConfig) (*Process, error
 		// Warning: This depends on xpty internals and may break if xpty changes.
 		// A proper fix would require forking xpty or getting upstream changes.
 		pp := util.GetUnexportedField(xp, "pp").(*xpty.PassthroughPipe)
+		
+		defer func() {
+			// Mark process as terminated and notify callers
+			process.processStateLock.Lock()
+			process.processTerminated = true
+			process.processStateLock.Unlock()
+			
+			// Update lastScreenUpdate to allow ReadScreen to exit cleanly
+			process.screenUpdateLock.Lock()
+			process.lastScreenUpdate = time.Now()
+			process.screenUpdateLock.Unlock()
+			
+			// Notify callers that the process has terminated
+			close(process.terminationChan)
+		}()
+		
 		for {
 			r, _, err := pp.ReadRune()
 			if err != nil {
-				if err != io.EOF {
+				// Handle different types of errors appropriately
+				if err == io.EOF {
+					// Process has terminated normally
+					logger.Debug("Process terminated (EOF)")
+					process.processStateLock.Lock()
+					process.processError = nil // EOF is not an error
+					process.processStateLock.Unlock()
+				} else {
+					// Log the error and mark it as the process error
 					logger.Error("Error reading from pseudo terminal", "error", err)
+					process.processStateLock.Lock()
+					process.processError = err
+					process.processStateLock.Unlock()
 				}
-				// TODO: handle this error better. if this happens, the terminal
-				// state will never be updated anymore and the process will appear
-				// unresponsive.
 				return
 			}
+			
 			process.screenUpdateLock.Lock()
 			// writing to the terminal updates its state. without it,
 			// xp.State will always return an empty string
@@ -111,7 +146,22 @@ func (p *Process) Signal(sig os.Signal) error {
 // we'd often capture it while it's being updated. This would
 // result in a malformed agent message being returned to the
 // user.
+//
+// If the process has terminated, it returns the current screen state immediately.
 func (p *Process) ReadScreen() string {
+	// Check if process has terminated
+	p.processStateLock.RLock()
+	terminated := p.processTerminated
+	p.processStateLock.RUnlock()
+	
+	if terminated {
+		// Process has terminated, return current state immediately
+		p.screenUpdateLock.RLock()
+		state := p.xp.State.String()
+		p.screenUpdateLock.RUnlock()
+		return state
+	}
+	
 	for range 3 {
 		p.screenUpdateLock.RLock()
 		if time.Since(p.lastScreenUpdate) >= 16*time.Millisecond {
@@ -127,13 +177,54 @@ func (p *Process) ReadScreen() string {
 
 // Write sends input to the process via the pseudo terminal.
 func (p *Process) Write(data []byte) (int, error) {
+	p.processStateLock.RLock()
+	terminated := p.processTerminated
+	p.processStateLock.RUnlock()
+	
+	if terminated {
+		return 0, xerrors.New("cannot write to terminated process")
+	}
+	
 	return p.xp.TerminalInPipe().Write(data)
+}
+
+// IsTerminated returns true if the process has terminated.
+func (p *Process) IsTerminated() bool {
+	p.processStateLock.RLock()
+	defer p.processStateLock.RUnlock()
+	return p.processTerminated
+}
+
+// ProcessError returns the error that caused the process to terminate, if any.
+func (p *Process) ProcessError() error {
+	p.processStateLock.RLock()
+	defer p.processStateLock.RUnlock()
+	return p.processError
+}
+
+// TerminationChannel returns a channel that will be closed when the process terminates.
+func (p *Process) TerminationChannel() <-chan struct{} {
+	return p.terminationChan
 }
 
 // Close closes the process using a SIGINT signal or forcefully killing it if the process
 // does not exit after the timeout. It then closes the pseudo terminal.
 func (p *Process) Close(logger *slog.Logger, timeout time.Duration) error {
 	logger.Info("Closing process")
+	
+	// Check if process is already terminated
+	p.processStateLock.RLock()
+	alreadyTerminated := p.processTerminated
+	p.processStateLock.RUnlock()
+	
+	if alreadyTerminated {
+		logger.Debug("Process already terminated")
+		if err := p.xp.Close(); err != nil {
+			return xerrors.Errorf("failed to close pseudo terminal: %w", err)
+		}
+		return p.ProcessError()
+	}
+	
 	if err := p.execCmd.Process.Signal(os.Interrupt); err != nil {
 		return xerrors.Errorf("failed to send SIGINT to process: %w", err)
 	}
