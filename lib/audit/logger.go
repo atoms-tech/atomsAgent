@@ -456,8 +456,8 @@ func (al *AuditLogger) Cleanup(olderThan time.Duration) error {
 		"audit_log",
 		"cleanup",
 		map[string]any{
-			"cutoff_time":   cutoffTime,
-			"rows_deleted":  rowsAffected,
+			"cutoff_time":    cutoffTime,
+			"rows_deleted":   rowsAffected,
 			"retention_days": olderThan.Hours() / 24,
 		},
 	)

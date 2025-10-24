@@ -6,7 +6,7 @@
 # ==============================================================================
 # Stage 1: Go Builder
 # ==============================================================================
-FROM golang:1.21-alpine AS go-builder
+FROM golang:1.23-alpine AS go-builder
 
 # Install build dependencies
 RUN apk add --no-cache \
@@ -104,7 +104,7 @@ RUN pip install --no-cache-dir --prefix=/install -r requirements.txt && \
     pip install --no-cache-dir --prefix=/install -r lib-mcp-requirements.txt
 
 # Verify FastMCP installation
-RUN python3 -c "from fastmcp import FastMCPClient; print('FastMCP installed successfully')"
+RUN PYTHONPATH=/install/lib/python3.11/site-packages python3 -c "import fastmcp; print('FastMCP installed successfully')"
 
 # ==============================================================================
 # Stage 4: Final Production Image
@@ -183,7 +183,7 @@ RUN echo '[supervisord]' > /etc/supervisor/conf.d/agentapi.conf && \
     echo 'pidfile=/var/run/agentapi/supervisord.pid' >> /etc/supervisor/conf.d/agentapi.conf && \
     echo '' >> /etc/supervisor/conf.d/agentapi.conf && \
     echo '[program:agentapi]' >> /etc/supervisor/conf.d/agentapi.conf && \
-    echo 'command=/usr/local/bin/agentapi server --port=%(ENV_AGENTAPI_PORT)s' >> /etc/supervisor/conf.d/agentapi.conf && \
+    echo 'command=/usr/local/bin/agentapi server claude --port=%(ENV_AGENTAPI_PORT)s' >> /etc/supervisor/conf.d/agentapi.conf && \
     echo 'directory=/app' >> /etc/supervisor/conf.d/agentapi.conf && \
     echo 'user=agentapi' >> /etc/supervisor/conf.d/agentapi.conf && \
     echo 'autostart=true' >> /etc/supervisor/conf.d/agentapi.conf && \

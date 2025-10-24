@@ -1,0 +1,11 @@
+# Benchmark output files
+*.prof
+*.test
+*.out
+
+# Benchmark results
+*.txt
+results/
+
+# Test artifacts
+bench-*

@@ -1,347 +1,361 @@
-# Docker Compose Quick Start Guide
+# AgentAPI Docker Quick Start
 
-Get AgentAPI running in minutes with Docker Compose!
+**Date**: October 24, 2025
+**Setup Time**: ~5 minutes
+**Providers**: VertexAI (Gemini models) with dynamic model discovery
+
+---
 
 ## Prerequisites
 
-- Docker Desktop (macOS/Windows) or Docker Engine + Docker Compose (Linux)
-- At least 8GB RAM and 10GB free disk space
-- Required API keys (see Configuration below)
+- Docker and Docker Compose installed
+- Supabase account with PostgreSQL database
+- Upstash account with Redis instance
+- Google Cloud Platform (GCP) project with VertexAI enabled
 
-## 5-Minute Setup
+---
 
-### 1. Copy Environment File
+## 1️⃣ Get Your Credentials
 
-```bash
-cp .env.docker .env
-```
+### Supabase
+Go to https://supabase.com and get:
+- **SUPABASE_URL**: `https://your-project.supabase.co`
+- **SUPABASE_ANON_KEY**: Your anon public key
+- **SUPABASE_SERVICE_ROLE_KEY**: Your service role key
+- **DATABASE_URL**: `postgresql://postgres:password@db.your-project.supabase.co:5432/postgres`
 
-### 2. Configure Essential Variables
+### Upstash
+Go to https://console.upstash.com and get:
+- **UPSTASH_REDIS_REST_URL**: `https://your-region.upstash.io`
+- **UPSTASH_REDIS_REST_TOKEN**: Your REST token
 
-Edit `.env` and set these **required** variables:
+### VertexAI (Google Cloud)
+1. Go to https://console.cloud.google.com
+2. Enable VertexAI API
+3. Create service account with VertexAI permissions
+4. Download JSON key and base64 encode it:
+   ```bash
+   cat service-account-key.json | base64 | tr -d '\n'
+   ```
+5. Get:
+   - **VERTEX_AI_API_KEY**: Your base64-encoded service key
+   - **VERTEX_AI_PROJECT_ID**: Your GCP project ID
 
-```bash
-# Supabase (Required)
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_ANON_KEY=your-anon-key
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+---
 
-# AI Provider (Required - at least one)
-ANTHROPIC_API_KEY=sk-ant-api03-your-key
-
-# Optional: For Vertex AI support
-VERTEX_AI_API_KEY=your-gcp-credentials
-VERTEX_AI_PROJECT_ID=your-project-id
-```
-
-### 3. Start Services
-
-**Option A: Using Make (Recommended)**
-```bash
-make -f Makefile.docker init    # First time setup
-make -f Makefile.docker start   # Start services
-make -f Makefile.docker status  # Check health
-```
-
-**Option B: Using Helper Script**
-```bash
-./docker-manage.sh start
-./docker-manage.sh status
-```
-
-**Option C: Using Docker Compose Directly**
-```bash
-mkdir -p data/workspaces data/postgres data/redis
-docker-compose -f docker-compose.multitenant.yml up -d
-docker-compose -f docker-compose.multitenant.yml ps
-```
-
-### 4. Verify Installation
+## 2️⃣ Configure Environment
 
 ```bash
-# Check services are running
-curl http://localhost:3284/status  # AgentAPI
-curl http://localhost:8000/health  # FastMCP
+cd /Users/kooshapari/temp-PRODVERCEL/485/kush/agentapi
 
-# Or use the management tools
-make -f Makefile.docker status
-# or
-./docker-manage.sh status
+# Copy the example environment file
+cp .env.example .env
+
+# Edit with your credentials
+nano .env
 ```
 
-You should see:
-- AgentAPI running on port 3284
-- FastMCP running on port 8000
-- PostgreSQL running on port 5432
-- Redis running on port 6379
+**Minimal `.env` (required fields only):**
+```env
+# Database (Supabase)
+DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@db.YOUR_PROJECT.supabase.co:5432/postgres
+SUPABASE_URL=https://YOUR_PROJECT.supabase.co
+SUPABASE_ANON_KEY=YOUR_ANON_KEY
+SUPABASE_SERVICE_ROLE_KEY=YOUR_SERVICE_ROLE_KEY
 
-## Services Overview
+# Redis (Upstash)
+UPSTASH_REDIS_REST_URL=https://YOUR_REGION.upstash.io
+UPSTASH_REDIS_REST_TOKEN=YOUR_REST_TOKEN
 
-| Service | Port | Purpose | Required |
-|---------|------|---------|----------|
-| AgentAPI | 3284 | Main Go backend API | Yes |
-| FastMCP | 8000 | Python MCP service | Yes |
-| PostgreSQL | 5432 | Database (optional, can use external) | Optional |
-| Redis | 6379 | Cache and sessions | Optional |
+# VertexAI (Google Cloud) - ONLY SUPPORTED PROVIDER
+VERTEX_AI_API_KEY=YOUR_BASE64_ENCODED_SERVICE_KEY
+VERTEX_AI_PROJECT_ID=YOUR_GCP_PROJECT_ID
+VERTEX_AI_LOCATION=us-central1  # Or your preferred region
 
-## Common Operations
+# App Config
+NODE_ENV=production
+```
 
-### View Logs
+---
+
+## 3️⃣ Start AgentAPI
 
 ```bash
-# All services
-make -f Makefile.docker logs
+# Build and start
+docker-compose up -d
 
-# Specific service
-make -f Makefile.docker logs-agentapi
-docker-compose -f docker-compose.multitenant.yml logs -f agentapi
+# Watch logs
+docker-compose logs -f agentapi
+
+# Stop
+docker-compose down
 ```
 
-### Restart Services
+---
+
+## 4️⃣ Verify It's Running
 
 ```bash
-# All services
-make -f Makefile.docker restart
+# Health check
+curl http://localhost:3284/health
 
-# Single service
-make -f Makefile.docker restart-agentapi
-docker-compose -f docker-compose.multitenant.yml restart agentapi
+# Expected response:
+{
+  "status": "UP",
+  "components": {
+    "database": "UP",
+    "redis": "UP",
+    "vertex_ai": "UP"
+  }
+}
+
+# Check logs
+docker-compose logs agentapi | tail -20
+
+# See all containers
+docker ps
 ```
 
-### Stop Services
+---
+
+## 5️⃣ Access Services
+
+| Service | URL | Notes |
+|---------|-----|-------|
+| AgentAPI | http://localhost:3284 | REST API |
+| FastMCP | http://localhost:8000 | Python MCP service |
+| Health | http://localhost:3284/health | Status check |
+| Status | http://localhost:3284/status | Detailed status |
+| Models | http://localhost:3284/v1/models | List available models |
+
+---
+
+## 6️⃣ List Available Models
+
+Once running, view all dynamically discovered VertexAI models:
 
 ```bash
-make -f Makefile.docker stop
-# or
-docker-compose -f docker-compose.multitenant.yml stop
+# Without auth
+curl http://localhost:3284/v1/models
+
+# With Bearer token (if auth required)
+curl -H "Authorization: Bearer YOUR_TOKEN" \
+  http://localhost:3284/v1/models
+
+# Expected response:
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "gemini-1.5-pro",
+      "object": "model",
+      "created": 1234567890,
+      "owned_by": "google"
+    },
+    {
+      "id": "gemini-1.5-flash",
+      "object": "model",
+      "created": 1234567890,
+      "owned_by": "google"
+    },
+    ...
+  ]
+}
 ```
 
-### Database Access
+---
+
+## Common Commands
 
 ```bash
-# PostgreSQL shell
-make -f Makefile.docker db-shell
-# or
-docker-compose -f docker-compose.multitenant.yml exec postgres psql -U agentapi -d agentapi
+# View logs in real-time
+docker-compose logs -f agentapi
+
+# View last 50 lines
+docker-compose logs --tail=50 agentapi
+
+# Stop services (keep data)
+docker-compose stop
+
+# Start again
+docker-compose start
+
+# Full restart
+docker-compose restart
+
+# Remove everything (careful!)
+docker-compose down -v
+
+# Check resource usage
+docker stats agentapi
+
+# Shell into container
+docker exec -it agentapi /bin/sh
+
+# Test VertexAI connection
+docker exec agentapi curl \
+  -H "Authorization: Bearer $(gcloud auth application-default print-access-token)" \
+  "https://vertex-ai.googleapis.com/v1/projects/YOUR_PROJECT_ID/locations/us-central1/models"
 ```
 
-### Redis Access
-
-```bash
-# Redis CLI
-make -f Makefile.docker redis-shell
-# or
-docker-compose -f docker-compose.multitenant.yml exec redis redis-cli
-```
-
-### Container Shell Access
-
-```bash
-# AgentAPI container
-make -f Makefile.docker shell
-# or
-docker-compose -f docker-compose.multitenant.yml exec agentapi sh
-```
-
-## Resource Monitoring
-
-```bash
-# View resource usage
-make -f Makefile.docker stats
-# or
-docker stats
-```
-
-## Backup Data
-
-```bash
-# Create full backup
-make -f Makefile.docker backup
-
-# Or manually
-./docker-manage.sh backup
-```
-
-Backups are stored in `./backups/` directory.
-
-## Cleanup
-
-```bash
-# Stop and remove containers (keeps data)
-make -f Makefile.docker clean
-
-# Remove everything including data (DESTRUCTIVE!)
-make -f Makefile.docker clean-all
-```
-
-## Configuration Options
-
-### Using External Database
-
-If you want to use an external PostgreSQL database (like Supabase):
-
-1. Edit `.env`:
-```bash
-DATABASE_URL=postgresql://user:password@external-host:5432/dbname?sslmode=require
-```
-
-2. Comment out postgres dependency in `docker-compose.multitenant.yml`:
-```yaml
-depends_on:
-  # postgres:
-  #   condition: service_healthy
-  redis:
-    condition: service_healthy
-```
-
-3. Stop local postgres:
-```bash
-docker-compose -f docker-compose.multitenant.yml stop postgres
-```
-
-### Resource Limits
-
-Default resource limits:
-
-**AgentAPI:**
-- CPU: 2.0 max, 1.0 reserved
-- Memory: 4GB max, 2GB reserved
-
-**PostgreSQL:**
-- CPU: 1.0 max, 0.5 reserved
-- Memory: 2GB max, 512MB reserved
-
-**Redis:**
-- CPU: 0.5 max, 0.25 reserved
-- Memory: 512MB max, 256MB reserved
-
-To adjust, edit `docker-compose.multitenant.yml` under each service's `deploy.resources` section.
-
-### Environment Variables
-
-See `.env.docker` for all available configuration options, including:
-
-- Database configuration
-- AI provider keys (Anthropic, Vertex AI)
-- OAuth providers (GitHub, Google, Azure, Auth0)
-- Logging and monitoring
-- Feature flags
-- Security settings
+---
 
 ## Troubleshooting
 
-### Services Won't Start
+### "Connection refused" to Supabase
+- Verify DATABASE_URL is correct
+- Check Supabase project is running
+- Ensure PostgreSQL port (5432) is accessible
 
+### "Connection refused" to Upstash
+- Verify UPSTASH_REDIS_REST_URL and token
+- Check Upstash console shows instance is running
+- Ensure no firewall blocking HTTPS (443)
+
+### VertexAI authentication failed
+- Verify VERTEX_AI_API_KEY is base64-encoded correctly
+- Check GCP project ID matches VERTEX_AI_PROJECT_ID
+- Verify service account has VertexAI permissions
+- Test with: `curl -X POST https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/YOUR_SA@YOUR_PROJECT.iam.gserviceaccount.com:generateAccessToken`
+
+### No models returned from /v1/models
+- Check VertexAI API is enabled in GCP
+- Verify service account has `aiplatform.models.list` permission
+- Check VERTEX_AI_LOCATION matches available models
+- View container logs: `docker-compose logs agentapi`
+
+### Container exits immediately
 ```bash
-# Check logs
-docker-compose -f docker-compose.multitenant.yml logs
+# Check error logs
+docker-compose logs agentapi
 
-# Rebuild from scratch
-docker-compose -f docker-compose.multitenant.yml down -v
-docker-compose -f docker-compose.multitenant.yml build --no-cache
-docker-compose -f docker-compose.multitenant.yml up -d
+# Common issues:
+# - Missing required env vars (DATABASE_URL, VERTEX_AI_API_KEY, etc.)
+# - Invalid base64-encoded API key
+# - GCP credentials invalid
+# - Port 3284 already in use
 ```
 
-### Port Already in Use
-
+### Port already in use
 ```bash
-# Find what's using the port
-lsof -i :3284
-
-# Change port in .env (example)
-AGENTAPI_PORT=3285
+# Use environment variable to change port
+export AGENTAPI_PORT=3285
+docker-compose up -d
 ```
 
-Then update port mapping in `docker-compose.multitenant.yml`.
+---
 
-### Database Connection Issues
+## Environment Variables Reference
 
+### Database (Supabase)
+- `DATABASE_URL`: PostgreSQL connection string (required)
+- `SUPABASE_URL`: Supabase project URL
+- `SUPABASE_ANON_KEY`: Supabase anon public key
+- `SUPABASE_SERVICE_ROLE_KEY`: Supabase service role key
+
+### Redis (Upstash)
+- `UPSTASH_REDIS_REST_URL`: REST API endpoint
+- `UPSTASH_REDIS_REST_TOKEN`: REST API token
+- `REDIS_PROTOCOL`: Set to `rest` for Upstash
+
+### VertexAI Configuration
+- `VERTEX_AI_API_KEY`: Base64-encoded GCP service account key (required)
+- `VERTEX_AI_PROJECT_ID`: GCP project ID (required)
+- `VERTEX_AI_LOCATION`: GCP region (default: us-central1)
+- `VERTEX_AI_MODEL_DISCOVERY_ENABLED`: Enable dynamic model discovery (default: true)
+- `VERTEX_AI_MODEL_CACHE_TTL`: Model cache TTL (default: 3600s)
+
+### Application
+- `NODE_ENV`: `production` or `development`
+- `AGENTAPI_PORT`: Server port (default: 3284)
+- `AGENTAPI_ALLOWED_HOSTS`: CORS allowed hosts (default: *)
+- `AGENTAPI_ALLOWED_ORIGINS`: CORS allowed origins (default: *)
+- `LOG_LEVEL`: `info`, `debug`, `warn`, `error`
+- `LOG_FORMAT`: `json` or `text`
+
+### Rate Limiting
+- `RATE_LIMIT_ENABLED`: Enable rate limiting (default: true)
+- `RATE_LIMIT_REQUESTS_PER_MINUTE`: Requests per minute (default: 60)
+- `RATE_LIMIT_BURST_SIZE`: Burst size (default: 10)
+
+### Circuit Breaker
+- `CIRCUIT_BREAKER_ENABLED`: Enable circuit breaker (default: true)
+- `CIRCUIT_BREAKER_FAILURE_THRESHOLD`: Failures before open (default: 5)
+- `CIRCUIT_BREAKER_SUCCESS_THRESHOLD`: Successes before closed (default: 2)
+- `CIRCUIT_BREAKER_TIMEOUT`: Timeout in open state (default: 30s)
+
+---
+
+## GCP Service Account Setup
+
+### 1. Create Service Account
 ```bash
-# Verify postgres is running
-docker-compose -f docker-compose.multitenant.yml ps postgres
-
-# Check health
-docker-compose -f docker-compose.multitenant.yml exec postgres pg_isready
-
-# Verify connection string
-docker-compose -f docker-compose.multitenant.yml exec agentapi env | grep DATABASE_URL
+gcloud iam service-accounts create agentapi-vertexai \
+  --display-name="AgentAPI VertexAI Service Account"
 ```
 
-### Out of Disk Space
-
+### 2. Grant VertexAI Permissions
 ```bash
-# Check usage
-docker system df
-
-# Clean up
-docker system prune -a
-docker volume prune
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+  --member="serviceAccount:agentapi-vertexai@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/aiplatform.admin"
 ```
 
-### Permission Issues
-
+### 3. Create and Download JSON Key
 ```bash
-# Fix data directory permissions
-sudo chown -R $USER:$USER data/
+gcloud iam service-accounts keys create \
+  ~/agentapi-vertexai-key.json \
+  --iam-account=agentapi-vertexai@YOUR_PROJECT_ID.iam.gserviceaccount.com
 ```
 
-## Development Mode
-
-For active development with live logs:
-
+### 4. Encode to Base64
 ```bash
-make -f Makefile.docker dev
+cat ~/agentapi-vertexai-key.json | base64 | tr -d '\n' > ~/vertex-ai-api-key.txt
 ```
 
-This builds, starts, and tails logs for all services.
+### 5. Use in .env
+```bash
+# Copy base64 content
+VERTEX_AI_API_KEY=$(cat ~/vertex-ai-api-key.txt)
 
-## Production Deployment
+# Add to .env
+echo "VERTEX_AI_API_KEY=$VERTEX_AI_API_KEY" >> .env
+```
 
-See [DOCKER_COMPOSE_README.md](./DOCKER_COMPOSE_README.md) for detailed production deployment guide, including:
-
-- Security hardening
-- SSL/TLS configuration
-- High availability setup
-- Monitoring and observability
-- Backup strategies
-
-## Management Tools
-
-Three ways to manage services:
-
-1. **Makefile** (Recommended for frequent use)
-   ```bash
-   make -f Makefile.docker help
-   ```
-
-2. **Helper Script** (Recommended for beginners)
-   ```bash
-   ./docker-manage.sh help
-   ```
-
-3. **Docker Compose** (Direct control)
-   ```bash
-   docker-compose -f docker-compose.multitenant.yml --help
-   ```
+---
 
 ## Next Steps
 
-1. **Access the API**: http://localhost:3284
-2. **View API Docs**: http://localhost:3284/docs (if available)
-3. **Check FastMCP**: http://localhost:8000/docs
-4. **Monitor Logs**: `make -f Makefile.docker logs`
-5. **Read Full Docs**: [DOCKER_COMPOSE_README.md](./DOCKER_COMPOSE_README.md)
+1. **Test the API**: See `AUTHKIT_CHAT_API_IMPLEMENTATION.md` for API examples
+2. **Send a request**: Use `/v1/chat/completions` endpoint (OpenAI-compatible)
+3. **Frontend Integration**: Connect atoms.tech (see `QUICKSTART_LOCAL_TESTING.md`)
+4. **Production Deploy**: Use this same compose file on a server with Docker
+5. **Monitoring**: Enable metrics and audit logging (see `ENV_SETUP.md`)
+
+---
+
+## Example API Request
+
+```bash
+curl -X POST http://localhost:3284/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini-1.5-pro",
+    "messages": [
+      {"role": "user", "content": "Hello, what can you do?"}
+    ],
+    "temperature": 0.7,
+    "max_tokens": 1024
+  }'
+```
+
+---
 
 ## Support
 
-- Full Documentation: [DOCKER_COMPOSE_README.md](./DOCKER_COMPOSE_README.md)
-- Multi-Tenant Guide: [MULTITENANT.md](./MULTITENANT.md)
-- CCRouter Setup: [CCROUTER_QUICK_REFERENCE.md](./CCROUTER_QUICK_REFERENCE.md)
-
-## Tips
-
-- Use `make -f Makefile.docker help` to see all available commands
-- Always backup data before major updates
-- Check logs regularly for errors
-- Monitor resource usage with `make -f Makefile.docker stats`
-- Keep your `.env` file secure and never commit it to version control
+- **VertexAI Docs**: https://cloud.google.com/vertex-ai/docs
+- **GCP Console**: https://console.cloud.google.com
+- **Supabase Docs**: https://supabase.com/docs
+- **Upstash Docs**: https://upstash.com/docs
+- **Docker Compose Docs**: https://docs.docker.com/compose/
+- **AgentAPI Issues**: Check related documentation

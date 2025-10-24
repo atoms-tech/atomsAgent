@@ -23,11 +23,11 @@ type Process struct {
 	screenUpdateLock sync.RWMutex
 	lastScreenUpdate time.Time
 	// Process state management
-	processStateLock sync.RWMutex
+	processStateLock  sync.RWMutex
 	processTerminated bool
 	processError      error
 	// Notification channel for process termination
-	terminationChan   chan struct{}
+	terminationChan chan struct{}
 }
 
 type StartProcessConfig struct {
@@ -53,7 +53,7 @@ func StartProcess(ctx context.Context, args StartProcessConfig) (*Process, error
 	}
 
 	process := &Process{
-		xp:              xp, 
+		xp:              xp,
 		execCmd:         execCmd,
 		terminationChan: make(chan struct{}),
 	}
@@ -85,22 +85,22 @@ func StartProcess(ctx context.Context, args StartProcessConfig) (*Process, error
 		// Warning: This depends on xpty internals and may break if xpty changes.
 		// A proper fix would require forking xpty or getting upstream changes.
 		pp := util.GetUnexportedField(xp, "pp").(*xpty.PassthroughPipe)
-		
+
 		defer func() {
 			// Mark process as terminated and notify callers
 			process.processStateLock.Lock()
 			process.processTerminated = true
 			process.processStateLock.Unlock()
-			
+
 			// Update lastScreenUpdate to allow ReadScreen to exit cleanly
 			process.screenUpdateLock.Lock()
 			process.lastScreenUpdate = time.Now()
 			process.screenUpdateLock.Unlock()
-			
+
 			// Notify callers that the process has terminated
 			close(process.terminationChan)
 		}()
-		
+
 		for {
 			r, _, err := pp.ReadRune()
 			if err != nil {
@@ -120,7 +120,7 @@ func StartProcess(ctx context.Context, args StartProcessConfig) (*Process, error
 				}
 				return
 			}
-			
+
 			process.screenUpdateLock.Lock()
 			// writing to the terminal updates its state. without it,
 			// xp.State will always return an empty string
@@ -153,7 +153,7 @@ func (p *Process) ReadScreen() string {
 	p.processStateLock.RLock()
 	terminated := p.processTerminated
 	p.processStateLock.RUnlock()
-	
+
 	if terminated {
 		// Process has terminated, return current state immediately
 		p.screenUpdateLock.RLock()
@@ -161,7 +161,7 @@ func (p *Process) ReadScreen() string {
 		p.screenUpdateLock.RUnlock()
 		return state
 	}
-	
+
 	for range 3 {
 		p.screenUpdateLock.RLock()
 		if time.Since(p.lastScreenUpdate) >= 16*time.Millisecond {
@@ -180,11 +180,11 @@ func (p *Process) Write(data []byte) (int, error) {
 	p.processStateLock.RLock()
 	terminated := p.processTerminated
 	p.processStateLock.RUnlock()
-	
+
 	if terminated {
 		return 0, xerrors.New("cannot write to terminated process")
 	}
-	
+
 	return p.xp.TerminalInPipe().Write(data)
 }
 
@@ -211,12 +211,12 @@ func (p *Process) TerminationChannel() <-chan struct{} {
 // does not exit after the timeout. It then closes the pseudo terminal.
 func (p *Process) Close(logger *slog.Logger, timeout time.Duration) error {
 	logger.Info("Closing process")
-	
+
 	// Check if process is already terminated
 	p.processStateLock.RLock()
 	alreadyTerminated := p.processTerminated
 	p.processStateLock.RUnlock()
-	
+
 	if alreadyTerminated {
 		logger.Debug("Process already terminated")
 		if err := p.xp.Close(); err != nil {
@@ -224,7 +224,7 @@ func (p *Process) Close(logger *slog.Logger, timeout time.Duration) error {
 		}
 		return p.ProcessError()
 	}
-	
+
 	if err := p.execCmd.Process.Signal(os.Interrupt); err != nil {
 		return xerrors.Errorf("failed to send SIGINT to process: %w", err)
 	}

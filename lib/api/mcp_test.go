@@ -103,13 +103,13 @@ func TestCreateMCPConfiguration(t *testing.T) {
 		{
 			name: "valid HTTP MCP",
 			request: CreateMCPRequest{
-				Name:     "Test HTTP MCP",
-				Type:     "http",
-				Endpoint: "https://api.example.com/mcp",
-				AuthType: "bearer",
+				Name:      "Test HTTP MCP",
+				Type:      "http",
+				Endpoint:  "https://api.example.com/mcp",
+				AuthType:  "bearer",
 				AuthToken: "test-token",
-				Scope:    "org",
-				Enabled:  true,
+				Scope:     "org",
+				Enabled:   true,
 			},
 			expectedStatus: http.StatusCreated,
 			checkResponse: func(t *testing.T, body []byte) {

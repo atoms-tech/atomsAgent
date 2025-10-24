@@ -8,10 +8,10 @@ import (
 
 // Tool represents an MCP tool
 type Tool struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	InputSchema map[string]any         `json:"inputSchema"`
-	OutputSchema map[string]any        `json:"outputSchema,omitempty"`
+	Name         string         `json:"name"`
+	Description  string         `json:"description"`
+	InputSchema  map[string]any `json:"inputSchema"`
+	OutputSchema map[string]any `json:"outputSchema,omitempty"`
 }
 
 // Resource represents an MCP resource
@@ -24,9 +24,9 @@ type Resource struct {
 
 // Prompt represents an MCP prompt
 type Prompt struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Arguments   map[string]any         `json:"arguments,omitempty"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Arguments   map[string]any `json:"arguments,omitempty"`
 }
 
 // MCPConfig represents the configuration for connecting to an MCP server
@@ -48,10 +48,10 @@ type Client struct {
 	Endpoint string
 	Config   map[string]any
 	Auth     map[string]string
-	
+
 	// FastMCP client
 	fastMCPClient *FastMCPClient
-	
+
 	// Connection state
 	connected bool
 	lastError error
@@ -64,7 +64,7 @@ func NewClient(id, name, mcpType, endpoint string, config map[string]any, auth m
 	if err != nil {
 		return nil, fmt.Errorf("failed to create FastMCP client: %w", err)
 	}
-	
+
 	return &Client{
 		ID:            id,
 		Name:          name,
@@ -80,7 +80,7 @@ func NewClient(id, name, mcpType, endpoint string, config map[string]any, auth m
 func (c *Client) Connect(ctx context.Context) error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-	
+
 	config := MCPConfig{
 		ID:       c.ID,
 		Name:     c.Name,
@@ -90,12 +90,12 @@ func (c *Client) Connect(ctx context.Context) error {
 		Config:   c.Config,
 		Auth:     c.Auth,
 	}
-	
+
 	if err := c.fastMCPClient.ConnectMCP(ctx, config); err != nil {
 		c.lastError = err
 		return fmt.Errorf("failed to connect to MCP server: %w", err)
 	}
-	
+
 	c.connected = true
 	return nil
 }
@@ -115,11 +115,11 @@ func (c *Client) getAuthType() string {
 func (c *Client) CallTool(ctx context.Context, toolName string, arguments map[string]any) (map[string]any, error) {
 	c.mutex.RLock()
 	defer c.mutex.RUnlock()
-	
+
 	if !c.connected {
 		return nil, fmt.Errorf("MCP client not connected")
 	}
-	
+
 	return c.fastMCPClient.CallTool(ctx, c.ID, toolName, arguments)
 }
 
@@ -127,11 +127,11 @@ func (c *Client) CallTool(ctx context.Context, toolName string, arguments map[st
 func (c *Client) ListTools(ctx context.Context) ([]Tool, error) {
 	c.mutex.RLock()
 	defer c.mutex.RUnlock()
-	
+
 	if !c.connected {
 		return nil, fmt.Errorf("MCP client not connected")
 	}
-	
+
 	return c.fastMCPClient.ListTools(ctx, c.ID)
 }
 
@@ -139,11 +139,11 @@ func (c *Client) ListTools(ctx context.Context) ([]Tool, error) {
 func (c *Client) GetResources(ctx context.Context) ([]Resource, error) {
 	c.mutex.RLock()
 	defer c.mutex.RUnlock()
-	
+
 	if !c.connected {
 		return nil, fmt.Errorf("MCP client not connected")
 	}
-	
+
 	return c.fastMCPClient.ListResources(ctx, c.ID)
 }
 
@@ -151,11 +151,11 @@ func (c *Client) GetResources(ctx context.Context) ([]Resource, error) {
 func (c *Client) ReadResource(ctx context.Context, uri string) (map[string]any, error) {
 	c.mutex.RLock()
 	defer c.mutex.RUnlock()
-	
+
 	if !c.connected {
 		return nil, fmt.Errorf("MCP client not connected")
 	}
-	
+
 	return c.fastMCPClient.ReadResource(ctx, c.ID, uri)
 }
 
@@ -163,14 +163,14 @@ func (c *Client) ReadResource(ctx context.Context, uri string) (map[string]any, 
 func (c *Client) Disconnect() error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-	
+
 	if c.connected {
 		if err := c.fastMCPClient.DisconnectMCP(context.Background(), c.ID); err != nil {
 			return fmt.Errorf("failed to disconnect MCP client: %w", err)
 		}
 		c.connected = false
 	}
-	
+
 	return nil
 }
 

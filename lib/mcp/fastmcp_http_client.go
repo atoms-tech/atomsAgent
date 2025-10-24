@@ -7,9 +7,13 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/rand"
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 const (
@@ -17,6 +21,13 @@ const (
 	defaultBaseURL = "http://localhost:8000"
 	defaultTimeout = 30 * time.Second
 	maxRetries     = 3
+
+	// Retry configuration
+	initialRetryDelay = 100 * time.Millisecond
+	maxRetryDelay     = 30 * time.Second
+	retryMultiplier   = 2.0
+	jitterPercent     = 0.10 // ±10% jitter
+	retryTimeout      = 5 * time.Minute
 
 	// API endpoints
 	endpointConnect    = "/api/connect"
@@ -26,23 +37,123 @@ const (
 	endpointHealth     = "/health"
 )
 
+// RetryableStatusCodes are HTTP status codes that should trigger a retry
+var RetryableStatusCodes = map[int]bool{
+	429: true, // Too Many Requests
+	500: true, // Internal Server Error
+	502: true, // Bad Gateway
+	503: true, // Service Unavailable
+	504: true, // Gateway Timeout
+}
+
 // FastMCPHTTPClient is an HTTP client for the FastMCP service
 type FastMCPHTTPClient struct {
 	baseURL    string
 	httpClient *http.Client
 	timeout    time.Duration
 	mu         sync.RWMutex
+
+	// Dead Letter Queue support (optional)
+	dlqStore DeadLetterQueue
+
+	// Metrics
+	metrics *MCPMetrics
+
+	// Random generator for jitter (with seed for reproducibility)
+	rng *rand.Rand
+}
+
+// DeadLetterQueue interface for storing failed operations
+type DeadLetterQueue interface {
+	Store(ctx context.Context, operation FailedOperation) error
+	Get(ctx context.Context, id string) (*FailedOperation, error)
+	List(ctx context.Context, limit int) ([]FailedOperation, error)
+	Delete(ctx context.Context, id string) error
+	Cleanup(ctx context.Context, olderThan time.Duration) error
+}
+
+// FailedOperation represents an operation that failed after all retries
+type FailedOperation struct {
+	ID          string                 `json:"id"`
+	ClientID    string                 `json:"client_id"`
+	Operation   string                 `json:"operation"` // connect, disconnect, call_tool, list_tools
+	Endpoint    string                 `json:"endpoint"`
+	RequestBody map[string]interface{} `json:"request_body"`
+	LastError   string                 `json:"last_error"`
+	RetryCount  int                    `json:"retry_count"`
+	CreatedAt   time.Time              `json:"created_at"`
+	LastAttempt time.Time              `json:"last_attempt"`
+}
+
+// MCPMetrics holds Prometheus metrics for MCP operations
+type MCPMetrics struct {
+	RetryCount     *prometheus.CounterVec
+	RetryBackoff   *prometheus.HistogramVec
+	OperationTotal *prometheus.CounterVec
+	OperationTime  *prometheus.HistogramVec
+	DLQOperations  prometheus.Counter
+}
+
+// InitMetrics initializes Prometheus metrics for the MCP client
+func InitMetrics(namespace string) *MCPMetrics {
+	if namespace == "" {
+		namespace = "fastmcp"
+	}
+
+	return &MCPMetrics{
+		RetryCount: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: namespace,
+				Name:      "retry_attempts_total",
+				Help:      "Total number of retry attempts by operation and reason",
+			},
+			[]string{"operation", "reason"},
+		),
+		RetryBackoff: promauto.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Namespace: namespace,
+				Name:      "retry_backoff_seconds",
+				Help:      "Backoff delay duration in seconds by operation",
+				Buckets:   []float64{.001, .01, .1, .5, 1, 2.5, 5, 10, 30},
+			},
+			[]string{"operation"},
+		),
+		OperationTotal: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: namespace,
+				Name:      "operations_total",
+				Help:      "Total number of operations by type and status",
+			},
+			[]string{"operation", "status"},
+		),
+		OperationTime: promauto.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Namespace: namespace,
+				Name:      "operation_duration_seconds",
+				Help:      "Operation duration in seconds by operation type",
+				Buckets:   []float64{.01, .05, .1, .25, .5, 1, 2.5, 5, 10, 30, 60, 120, 300},
+			},
+			[]string{"operation"},
+		),
+		DLQOperations: promauto.NewCounter(
+			prometheus.CounterOpts{
+				Namespace: namespace,
+				Name:      "dlq_operations_total",
+				Help:      "Total number of operations sent to dead letter queue",
+			},
+		),
+	}
 }
 
 // ConnectRequest represents a request to connect to an MCP server
 type ConnectRequest struct {
-	ClientID     string            `json:"client_id"`
-	Transport    string            `json:"transport"`     // stdio, sse, or http
-	OAuthProvider string           `json:"oauth_provider,omitempty"`
-	MCPURL       string            `json:"mcp_url,omitempty"` // For SSE/HTTP transports
-	Command      string            `json:"command,omitempty"` // For stdio transport
-	Args         []string          `json:"args,omitempty"`    // For stdio transport
-	Env          map[string]string `json:"env,omitempty"`     // Environment variables
+	ClientID      string            `json:"client_id"`
+	Transport     string            `json:"transport"` // stdio, sse, or http
+	OAuthProvider string            `json:"oauth_provider,omitempty"`
+	MCPURL        string            `json:"mcp_url,omitempty"` // For SSE/HTTP transports
+	Command       string            `json:"command,omitempty"` // For stdio transport
+	Args          []string          `json:"args,omitempty"`    // For stdio transport
+	Env           map[string]string `json:"env,omitempty"`     // Environment variables
 }
 
 // DisconnectRequest represents a request to disconnect from an MCP server
@@ -98,7 +209,7 @@ type HealthResponse struct {
 
 // HTTPMCPConfig represents the configuration for connecting to an MCP server via HTTP
 type HTTPMCPConfig struct {
-	Transport     string            `json:"transport"`     // stdio, sse, or http
+	Transport     string            `json:"transport"` // stdio, sse, or http
 	OAuthProvider string            `json:"oauth_provider,omitempty"`
 	MCPURL        string            `json:"mcp_url,omitempty"` // For SSE/HTTP
 	Command       string            `json:"command,omitempty"` // For stdio
@@ -118,7 +229,38 @@ func NewFastMCPHTTPClient(baseURL string) *FastMCPHTTPClient {
 			Timeout: defaultTimeout,
 		},
 		timeout: defaultTimeout,
+		metrics: InitMetrics("fastmcp"),
+		rng:     rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
+}
+
+// NewFastMCPHTTPClientWithOptions creates a new FastMCP HTTP client with custom options
+func NewFastMCPHTTPClientWithOptions(baseURL string, dlq DeadLetterQueue, metrics *MCPMetrics) *FastMCPHTTPClient {
+	if baseURL == "" {
+		baseURL = defaultBaseURL
+	}
+
+	if metrics == nil {
+		metrics = InitMetrics("fastmcp")
+	}
+
+	return &FastMCPHTTPClient{
+		baseURL: baseURL,
+		httpClient: &http.Client{
+			Timeout: defaultTimeout,
+		},
+		timeout:  defaultTimeout,
+		dlqStore: dlq,
+		metrics:  metrics,
+		rng:      rand.New(rand.NewSource(time.Now().UnixNano())),
+	}
+}
+
+// SetDeadLetterQueue sets the dead letter queue for failed operations
+func (c *FastMCPHTTPClient) SetDeadLetterQueue(dlq DeadLetterQueue) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.dlqStore = dlq
 }
 
 // Connect establishes a connection to an MCP server
@@ -145,6 +287,53 @@ func (c *FastMCPHTTPClient) Connect(ctx context.Context, clientID string, config
 		return fmt.Errorf("connect failed: %s", resp.Error)
 	}
 
+	return nil
+}
+
+// ConnectWithRetry establishes a connection to an MCP server with enhanced retry logic
+func (c *FastMCPHTTPClient) ConnectWithRetry(ctx context.Context, clientID string, config HTTPMCPConfig) error {
+	start := time.Now()
+	defer func() {
+		if c.metrics != nil {
+			c.metrics.OperationTime.WithLabelValues("connect").Observe(time.Since(start).Seconds())
+		}
+	}()
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	req := ConnectRequest{
+		ClientID:      clientID,
+		Transport:     config.Transport,
+		OAuthProvider: config.OAuthProvider,
+		MCPURL:        config.MCPURL,
+		Command:       config.Command,
+		Args:          config.Args,
+		Env:           config.Env,
+	}
+
+	var resp ConnectResponse
+	err := c.doRequestWithEnhancedRetry(ctx, "connect", http.MethodPost, endpointConnect, req, &resp)
+
+	if err != nil {
+		if c.metrics != nil {
+			c.metrics.OperationTotal.WithLabelValues("connect", "error").Inc()
+		}
+		// Store in DLQ if available
+		c.storeToDLQ(ctx, "connect", clientID, endpointConnect, req, err)
+		return fmt.Errorf("connect request failed: %w", err)
+	}
+
+	if !resp.Success {
+		if c.metrics != nil {
+			c.metrics.OperationTotal.WithLabelValues("connect", "failure").Inc()
+		}
+		return fmt.Errorf("connect failed: %s", resp.Error)
+	}
+
+	if c.metrics != nil {
+		c.metrics.OperationTotal.WithLabelValues("connect", "success").Inc()
+	}
 	return nil
 }
 

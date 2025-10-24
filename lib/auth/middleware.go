@@ -38,14 +38,14 @@ const (
 
 // Claims represents the JWT claims structure
 type Claims struct {
-	Sub   string   `json:"sub"`             // User ID (subject)
-	Email string   `json:"email"`           // User email
-	OrgID string   `json:"org_id"`          // Organization ID
-	Role  UserRole `json:"role"`            // User role
-	Exp   int64    `json:"exp"`             // Expiration time
-	Iat   int64    `json:"iat"`             // Issued at
-	Aud   string   `json:"aud,omitempty"`   // Audience
-	Iss   string   `json:"iss,omitempty"`   // Issuer
+	Sub   string   `json:"sub"`           // User ID (subject)
+	Email string   `json:"email"`         // User email
+	OrgID string   `json:"org_id"`        // Organization ID
+	Role  UserRole `json:"role"`          // User role
+	Exp   int64    `json:"exp"`           // Expiration time
+	Iat   int64    `json:"iat"`           // Issued at
+	Aud   string   `json:"aud,omitempty"` // Audience
+	Iss   string   `json:"iss,omitempty"` // Issuer
 	jwt.RegisteredClaims
 }
 

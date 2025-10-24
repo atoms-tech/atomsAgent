@@ -23,31 +23,31 @@ type FastMCPClient struct {
 func NewFastMCPClient() (*FastMCPClient, error) {
 	// Start the Python FastMCP wrapper process
 	cmd := exec.Command("python3", "lib/mcp/fastmcp_wrapper.py")
-	
+
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create stdin pipe: %w", err)
 	}
-	
+
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
-	
+
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start FastMCP wrapper: %w", err)
 	}
-	
+
 	client := &FastMCPClient{
 		process: cmd,
 		stdin:   bufio.NewWriter(stdin),
 		stdout:  bufio.NewScanner(stdout),
 		clients: make(map[string]bool),
 	}
-	
+
 	// Start goroutine to handle responses
 	go client.handleResponses()
-	
+
 	return client, nil
 }
 
@@ -55,7 +55,7 @@ func NewFastMCPClient() (*FastMCPClient, error) {
 func (c *FastMCPClient) ConnectMCP(ctx context.Context, config MCPConfig) error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-	
+
 	command := map[string]any{
 		"action": "connect",
 		"config": map[string]any{
@@ -68,29 +68,29 @@ func (c *FastMCPClient) ConnectMCP(ctx context.Context, config MCPConfig) error 
 			"auth":      config.Auth,
 		},
 	}
-	
+
 	if err := c.sendCommand(command); err != nil {
 		return fmt.Errorf("failed to send connect command: %w", err)
 	}
-	
+
 	// Wait for response
 	response, err := c.waitForResponse(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get connect response: %w", err)
 	}
-	
+
 	var result struct {
 		Success bool `json:"success"`
 	}
-	
+
 	if err := json.Unmarshal(response, &result); err != nil {
 		return fmt.Errorf("failed to parse connect response: %w", err)
 	}
-	
+
 	if !result.Success {
 		return fmt.Errorf("failed to connect to MCP server")
 	}
-	
+
 	c.clients[config.ID] = true
 	return nil
 }
@@ -99,34 +99,34 @@ func (c *FastMCPClient) ConnectMCP(ctx context.Context, config MCPConfig) error 
 func (c *FastMCPClient) DisconnectMCP(ctx context.Context, mcpID string) error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-	
+
 	command := map[string]any{
-		"action":  "disconnect",
+		"action": "disconnect",
 		"mcp_id": mcpID,
 	}
-	
+
 	if err := c.sendCommand(command); err != nil {
 		return fmt.Errorf("failed to send disconnect command: %w", err)
 	}
-	
+
 	// Wait for response
 	response, err := c.waitForResponse(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get disconnect response: %w", err)
 	}
-	
+
 	var result struct {
 		Success bool `json:"success"`
 	}
-	
+
 	if err := json.Unmarshal(response, &result); err != nil {
 		return fmt.Errorf("failed to parse disconnect response: %w", err)
 	}
-	
+
 	if !result.Success {
 		return fmt.Errorf("failed to disconnect from MCP server")
 	}
-	
+
 	delete(c.clients, mcpID)
 	return nil
 }
@@ -134,158 +134,158 @@ func (c *FastMCPClient) DisconnectMCP(ctx context.Context, mcpID string) error {
 // ListTools lists available tools from an MCP server
 func (c *FastMCPClient) ListTools(ctx context.Context, mcpID string) ([]Tool, error) {
 	command := map[string]any{
-		"action":  "list_tools",
+		"action": "list_tools",
 		"mcp_id": mcpID,
 	}
-	
+
 	if err := c.sendCommand(command); err != nil {
 		return nil, fmt.Errorf("failed to send list_tools command: %w", err)
 	}
-	
+
 	response, err := c.waitForResponse(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get list_tools response: %w", err)
 	}
-	
+
 	var result struct {
 		Tools []Tool `json:"tools"`
 	}
-	
+
 	if err := json.Unmarshal(response, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse list_tools response: %w", err)
 	}
-	
+
 	return result.Tools, nil
 }
 
 // CallTool calls a tool on an MCP server
 func (c *FastMCPClient) CallTool(ctx context.Context, mcpID, toolName string, arguments map[string]any) (map[string]any, error) {
 	command := map[string]any{
-		"action":     "call_tool",
+		"action":    "call_tool",
 		"mcp_id":    mcpID,
 		"tool_name": toolName,
 		"arguments": arguments,
 	}
-	
+
 	if err := c.sendCommand(command); err != nil {
 		return nil, fmt.Errorf("failed to send call_tool command: %w", err)
 	}
-	
+
 	response, err := c.waitForResponse(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get call_tool response: %w", err)
 	}
-	
+
 	var result map[string]any
 	if err := json.Unmarshal(response, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse call_tool response: %w", err)
 	}
-	
+
 	return result, nil
 }
 
 // ListResources lists available resources from an MCP server
 func (c *FastMCPClient) ListResources(ctx context.Context, mcpID string) ([]Resource, error) {
 	command := map[string]any{
-		"action":  "list_resources",
+		"action": "list_resources",
 		"mcp_id": mcpID,
 	}
-	
+
 	if err := c.sendCommand(command); err != nil {
 		return nil, fmt.Errorf("failed to send list_resources command: %w", err)
 	}
-	
+
 	response, err := c.waitForResponse(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get list_resources response: %w", err)
 	}
-	
+
 	var result struct {
 		Resources []Resource `json:"resources"`
 	}
-	
+
 	if err := json.Unmarshal(response, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse list_resources response: %w", err)
 	}
-	
+
 	return result.Resources, nil
 }
 
 // ReadResource reads a resource from an MCP server
 func (c *FastMCPClient) ReadResource(ctx context.Context, mcpID, uri string) (map[string]any, error) {
 	command := map[string]any{
-		"action":  "read_resource",
+		"action": "read_resource",
 		"mcp_id": mcpID,
 		"uri":    uri,
 	}
-	
+
 	if err := c.sendCommand(command); err != nil {
 		return nil, fmt.Errorf("failed to send read_resource command: %w", err)
 	}
-	
+
 	response, err := c.waitForResponse(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get read_resource response: %w", err)
 	}
-	
+
 	var result map[string]any
 	if err := json.Unmarshal(response, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse read_resource response: %w", err)
 	}
-	
+
 	return result, nil
 }
 
 // ListPrompts lists available prompts from an MCP server
 func (c *FastMCPClient) ListPrompts(ctx context.Context, mcpID string) ([]Prompt, error) {
 	command := map[string]any{
-		"action":  "list_prompts",
+		"action": "list_prompts",
 		"mcp_id": mcpID,
 	}
-	
+
 	if err := c.sendCommand(command); err != nil {
 		return nil, fmt.Errorf("failed to send list_prompts command: %w", err)
 	}
-	
+
 	response, err := c.waitForResponse(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get list_prompts response: %w", err)
 	}
-	
+
 	var result struct {
 		Prompts []Prompt `json:"prompts"`
 	}
-	
+
 	if err := json.Unmarshal(response, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse list_prompts response: %w", err)
 	}
-	
+
 	return result.Prompts, nil
 }
 
 // GetPrompt gets a prompt from an MCP server
 func (c *FastMCPClient) GetPrompt(ctx context.Context, mcpID, promptName string, arguments map[string]any) (map[string]any, error) {
 	command := map[string]any{
-		"action":       "get_prompt",
+		"action":      "get_prompt",
 		"mcp_id":      mcpID,
 		"prompt_name": promptName,
 		"arguments":   arguments,
 	}
-	
+
 	if err := c.sendCommand(command); err != nil {
 		return nil, fmt.Errorf("failed to send get_prompt command: %w", err)
 	}
-	
+
 	response, err := c.waitForResponse(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get get_prompt response: %w", err)
 	}
-	
+
 	var result map[string]any
 	if err := json.Unmarshal(response, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse get_prompt response: %w", err)
 	}
-	
+
 	return result, nil
 }
 
@@ -310,11 +310,11 @@ func (c *FastMCPClient) sendCommand(command map[string]any) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal command: %w", err)
 	}
-	
+
 	if _, err := c.stdin.Write(append(data, '\n')); err != nil {
 		return fmt.Errorf("failed to write command: %w", err)
 	}
-	
+
 	return c.stdin.Flush()
 }
 
@@ -323,7 +323,7 @@ func (c *FastMCPClient) waitForResponse(ctx context.Context) ([]byte, error) {
 	// Simple timeout mechanism
 	done := make(chan []byte, 1)
 	errChan := make(chan error, 1)
-	
+
 	go func() {
 		if c.stdout.Scan() {
 			done <- []byte(c.stdout.Text())
@@ -331,7 +331,7 @@ func (c *FastMCPClient) waitForResponse(ctx context.Context) ([]byte, error) {
 			errChan <- fmt.Errorf("failed to read response")
 		}
 	}()
-	
+
 	select {
 	case response := <-done:
 		return response, nil

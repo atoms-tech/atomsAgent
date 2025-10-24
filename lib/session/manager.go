@@ -28,6 +28,19 @@ var (
 	ErrInvalidOrgID = errors.New("invalid org ID")
 )
 
+// SessionStore defines the interface for session persistence
+type SessionStore interface {
+	StoreSession(ctx context.Context, sess *Session) error
+	RetrieveSession(ctx context.Context, sessionID string) (*Session, error)
+	UpdateSession(ctx context.Context, sess *Session) error
+	DeleteSession(ctx context.Context, sessionID string) error
+	ListSessions(ctx context.Context, userID string) ([]*Session, error)
+	Exists(ctx context.Context, sessionID string) (bool, error)
+	SetTTL(ctx context.Context, sessionID string, ttl time.Duration) error
+	Health() error
+	Close() error
+}
+
 // SessionManagerV2 manages isolated user sessions with thread-safe operations
 // This is the enhanced version with MCP client management and proper isolation
 type SessionManagerV2 struct {
@@ -48,6 +61,15 @@ type SessionManagerV2 struct {
 
 	// auditLogger logs session lifecycle events
 	auditLogger AuditLogger
+
+	// sessionStore provides persistent storage for sessions
+	sessionStore SessionStore
+
+	// useRedis indicates whether Redis persistence is enabled
+	useRedis bool
+
+	// syncOnAccess controls whether to sync with Redis on every access
+	syncOnAccess bool
 }
 
 // Session represents an isolated user session with MCP clients
@@ -121,6 +143,8 @@ func NewSessionManagerV2(workspaceRoot string, maxConcurrent int) *SessionManage
 		auditLogger: &defaultAuditLogger{
 			logger: slog.Default(),
 		},
+		useRedis:     false,
+		syncOnAccess: false,
 	}
 }
 
@@ -143,6 +167,40 @@ func (sm *SessionManagerV2) SetAuditLogger(logger AuditLogger) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.auditLogger = logger
+}
+
+// SetSessionStore sets a persistent session store (e.g., Redis) with fallback to in-memory
+func (sm *SessionManagerV2) SetSessionStore(store SessionStore, syncOnAccess bool) error {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	// Test store health
+	if err := store.Health(); err != nil {
+		// Store is not available, disable Redis persistence
+		sm.useRedis = false
+		sm.sessionStore = nil
+		return fmt.Errorf("session store health check failed, using in-memory only: %w", err)
+	}
+
+	sm.sessionStore = store
+	sm.useRedis = true
+	sm.syncOnAccess = syncOnAccess
+
+	return nil
+}
+
+// GetSessionStore returns the current session store (may be nil)
+func (sm *SessionManagerV2) GetSessionStore() SessionStore {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return sm.sessionStore
+}
+
+// IsUsingRedis returns true if Redis persistence is enabled and healthy
+func (sm *SessionManagerV2) IsUsingRedis() bool {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return sm.useRedis && sm.sessionStore != nil
 }
 
 // CreateSession creates a new isolated session for a user
@@ -206,10 +264,27 @@ func (sm *SessionManagerV2) CreateSession(ctx context.Context, userID, orgID str
 	// Store session in concurrent-safe map
 	sm.sessions.Store(sessionID, session)
 
+	// Persist to Redis if available
+	if sm.IsUsingRedis() {
+		if err := sm.sessionStore.StoreSession(ctx, session); err != nil {
+			// Log error but don't fail session creation
+			logger := sm.getLogger(ctx)
+			logger.WarnContext(ctx, "failed to persist session to Redis",
+				slog.String("session_id", sessionID),
+				slog.String("error", err.Error()),
+			)
+			// Disable Redis if it's failing
+			sm.mu.Lock()
+			sm.useRedis = false
+			sm.mu.Unlock()
+		}
+	}
+
 	// Log successful session creation
 	sm.auditLogger.LogSessionEvent(ctx, userID, orgID, "session_created", sessionID, map[string]any{
 		"workspace_path": workspacePath,
 		"created_at":     now,
+		"persisted":      sm.IsUsingRedis(),
 	})
 
 	return session, nil
@@ -218,6 +293,29 @@ func (sm *SessionManagerV2) CreateSession(ctx context.Context, userID, orgID str
 // GetSession retrieves a session by ID
 func (sm *SessionManagerV2) GetSession(sessionID string) (*Session, error) {
 	value, ok := sm.sessions.Load(sessionID)
+
+	// If not found in memory, try Redis if sync-on-access is enabled
+	if !ok && sm.IsUsingRedis() && sm.syncOnAccess {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		redisSession, err := sm.sessionStore.RetrieveSession(ctx, sessionID)
+		if err == nil {
+			// Found in Redis, restore to memory
+			sm.sessions.Store(sessionID, redisSession)
+
+			// Update last active timestamp
+			redisSession.mu.Lock()
+			redisSession.LastActiveAt = time.Now()
+			redisSession.mu.Unlock()
+
+			// Update in Redis with new timestamp
+			sm.sessionStore.UpdateSession(ctx, redisSession)
+
+			return redisSession, nil
+		}
+	}
+
 	if !ok {
 		return nil, ErrSessionNotFound
 	}
@@ -231,6 +329,21 @@ func (sm *SessionManagerV2) GetSession(sessionID string) (*Session, error) {
 	session.mu.Lock()
 	session.LastActiveAt = time.Now()
 	session.mu.Unlock()
+
+	// Persist updated timestamp to Redis if enabled
+	if sm.IsUsingRedis() {
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+
+		if err := sm.sessionStore.UpdateSession(ctx, session); err != nil {
+			// Log but don't fail on Redis update error
+			logger := sm.getLogger(ctx)
+			logger.WarnContext(ctx, "failed to update session in Redis",
+				slog.String("session_id", sessionID),
+				slog.String("error", err.Error()),
+			)
+		}
+	}
 
 	return session, nil
 }
@@ -284,6 +397,18 @@ func (sm *SessionManagerV2) CleanupSession(ctx context.Context, sessionID string
 		)
 	}
 
+	// Delete from Redis if enabled
+	if sm.IsUsingRedis() {
+		if err := sm.sessionStore.DeleteSession(ctx, sessionID); err != nil {
+			// Log error but don't fail the cleanup
+			logger := sm.getLogger(ctx)
+			logger.WarnContext(ctx, "failed to delete session from Redis",
+				slog.String("session_id", sessionID),
+				slog.String("error", err.Error()),
+			)
+		}
+	}
+
 	// Log successful cleanup
 	sm.auditLogger.LogSessionEvent(ctx, session.UserID, session.OrgID, "session_cleaned_up", sessionID, map[string]any{
 		"workspace_path":           session.WorkspacePath,
@@ -321,14 +446,35 @@ func (sm *SessionManagerV2) CountAllSessions() int {
 func (sm *SessionManagerV2) ListSessions(userID string) []*Session {
 	var sessions []*Session
 
+	// Get sessions from memory
+	sessionMap := make(map[string]*Session)
 	sm.sessions.Range(func(key, value any) bool {
 		if session, ok := value.(*Session); ok {
 			if session.UserID == userID {
+				sessionMap[session.ID] = session
 				sessions = append(sessions, session)
 			}
 		}
 		return true
 	})
+
+	// If sync-on-access is enabled, also check Redis for sessions not in memory
+	if sm.IsUsingRedis() && sm.syncOnAccess {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		redisSessions, err := sm.sessionStore.ListSessions(ctx, userID)
+		if err == nil {
+			for _, redisSession := range redisSessions {
+				// Only add if not already in memory
+				if _, exists := sessionMap[redisSession.ID]; !exists {
+					// Restore to memory
+					sm.sessions.Store(redisSession.ID, redisSession)
+					sessions = append(sessions, redisSession)
+				}
+			}
+		}
+	}
 
 	return sessions
 }

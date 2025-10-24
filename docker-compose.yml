@@ -1,0 +1,163 @@
+# ==============================================================================
+# AgentAPI Docker Compose - Minimal Configuration
+# ==============================================================================
+#
+# Uses external managed services:
+# - PostgreSQL via Supabase
+# - Redis via Upstash
+# - No local databases or caches
+#
+# QUICK START:
+# 1. cp .env.example .env
+# 2. Fill in your Supabase and Upstash credentials in .env
+# 3. docker-compose up -d
+#
+# ==============================================================================
+
+services:
+  # ============================================================================
+  # AgentAPI Service - Multi-tenant application with Go backend and Python MCP
+  # ============================================================================
+  agentapi:
+    build:
+      context: .
+      dockerfile: Dockerfile.multitenant
+    container_name: agentapi
+    ports:
+      - "3284:3284"  # Go AgentAPI server
+      - "8000:8000"  # Python FastMCP service
+    env_file:
+      - .env
+    environment:
+      # Database Configuration (Supabase)
+      - DATABASE_URL=${DATABASE_URL}
+
+      # Supabase Configuration
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+
+      # VertexAI Configuration (Only supported provider)
+      - VERTEX_AI_API_KEY=${VERTEX_AI_API_KEY}
+      - VERTEX_AI_PROJECT_ID=${VERTEX_AI_PROJECT_ID}
+      - VERTEX_AI_LOCATION=${VERTEX_AI_LOCATION:-us-central1}
+
+      # VertexAI Model Discovery
+      # Models are dynamically fetched from:
+      # https://vertex-ai.googleapis.com/v1/projects/<PROJECT_ID>/locations/<LOCATION>/models
+      - VERTEX_AI_MODEL_DISCOVERY_ENABLED=${VERTEX_AI_MODEL_DISCOVERY_ENABLED:-true}
+      - VERTEX_AI_MODEL_CACHE_TTL=${VERTEX_AI_MODEL_CACHE_TTL:-3600s}
+
+      # Application Configuration
+      - NODE_ENV=${NODE_ENV:-production}
+      - AGENTAPI_PORT=3284
+      - AGENTAPI_ALLOWED_HOSTS=${AGENTAPI_ALLOWED_HOSTS:-*}
+      - AGENTAPI_ALLOWED_ORIGINS=${AGENTAPI_ALLOWED_ORIGINS:-*}
+
+      # FastMCP Service Configuration
+      - FASTMCP_PORT=8000
+      - FASTMCP_HOST=0.0.0.0
+
+      # Redis Configuration (Upstash)
+      - REDIS_ENABLE=${REDIS_ENABLE:-true}
+      - REDIS_PROTOCOL=${REDIS_PROTOCOL:-rest}
+
+      # Upstash Redis Configuration (production)
+      # Get these from https://console.upstash.com
+      - UPSTASH_REDIS_REST_URL=${UPSTASH_REDIS_REST_URL}
+      - UPSTASH_REDIS_REST_TOKEN=${UPSTASH_REDIS_REST_TOKEN}
+      - UPSTASH_REDIS_URL=${UPSTASH_REDIS_URL:-}
+
+      # Rate Limiting (Redis-backed)
+      - RATE_LIMIT_ENABLED=${RATE_LIMIT_ENABLED:-true}
+      - RATE_LIMIT_REQUESTS_PER_MINUTE=${RATE_LIMIT_REQUESTS_PER_MINUTE:-60}
+      - RATE_LIMIT_BURST_SIZE=${RATE_LIMIT_BURST_SIZE:-10}
+
+      # Circuit Breaker (Redis-backed)
+      - CIRCUIT_BREAKER_ENABLED=${CIRCUIT_BREAKER_ENABLED:-true}
+      - CIRCUIT_BREAKER_FAILURE_THRESHOLD=${CIRCUIT_BREAKER_FAILURE_THRESHOLD:-5}
+      - CIRCUIT_BREAKER_SUCCESS_THRESHOLD=${CIRCUIT_BREAKER_SUCCESS_THRESHOLD:-2}
+      - CIRCUIT_BREAKER_TIMEOUT=${CIRCUIT_BREAKER_TIMEOUT:-30s}
+
+      # Session Storage (Redis-backed)
+      - SESSION_STORAGE=${SESSION_STORAGE:-redis}
+      - SESSION_TTL=${SESSION_TTL:-3600s}
+      - SESSION_CLEANUP_INTERVAL=${SESSION_CLEANUP_INTERVAL:-300s}
+
+      # Token Encryption
+      - TOKEN_ENCRYPTION_KEY=${TOKEN_ENCRYPTION_KEY:-change-this-to-a-random-32-byte-key}
+
+      # Logging Configuration
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+
+    volumes:
+      # Persistent workspace data for user sessions
+      - workspace_data:/workspaces
+
+      # Mount database directory for migrations and schema
+      - ./database:/app/database:ro
+      
+      # Mount gcloud credentials for VertexAI
+      - ~/.config/gcloud:/home/agentapi/.config/gcloud:ro
+
+    networks:
+      - agentapi-network
+
+    restart: unless-stopped
+
+    # Resource Limits and Reservations
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+
+    # Health Check
+    healthcheck:
+      test: ["CMD", "sh", "-c", "wget --no-verbose --tries=1 --spider http://localhost:3284/status || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    # Logging Configuration
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service,component"
+        env: "NODE_ENV"
+
+    labels:
+      - "com.agentapi.service=core"
+      - "com.agentapi.environment=${NODE_ENV:-production}"
+      - "com.agentapi.version=1.0.0"
+
+# ==============================================================================
+# Named Volumes - Persistent data storage
+# ==============================================================================
+volumes:
+  # User workspace data - stores user sessions and workspace files
+  workspace_data:
+    driver: local
+    labels:
+      - "com.agentapi.volume=workspaces"
+      - "com.agentapi.backup=true"
+
+# ==============================================================================
+# Networks - Service networking
+# ==============================================================================
+networks:
+  agentapi-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${NETWORK_SUBNET:-10.0.100.0/24}
+    labels:
+      - "com.agentapi.network=main"
+      - "com.agentapi.environment=${NODE_ENV:-production}"

@@ -112,18 +112,18 @@ type CircuitBreaker struct {
 	name   string
 	config CBConfig
 
-	mu                    sync.RWMutex
-	state                 State
-	stateChangedAt        time.Time
-	totalRequests         uint64
-	totalSuccesses        uint64
-	totalFailures         uint64
-	consecutiveSuccesses  uint32
-	consecutiveFailures   uint32
-	lastError             error
-	lastErrorTime         time.Time
-	halfOpenRequests      uint32
-	metrics               *CBMetrics
+	mu                   sync.RWMutex
+	state                State
+	stateChangedAt       time.Time
+	totalRequests        uint64
+	totalSuccesses       uint64
+	totalFailures        uint64
+	consecutiveSuccesses uint32
+	consecutiveFailures  uint32
+	lastError            error
+	lastErrorTime        time.Time
+	halfOpenRequests     uint32
+	metrics              *CBMetrics
 }
 
 // NewCircuitBreaker creates a new circuit breaker

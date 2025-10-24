@@ -188,10 +188,10 @@ func TestLogOutput(t *testing.T) {
 
 func TestLogLevelFiltering(t *testing.T) {
 	tests := []struct {
-		logLevel   LogLevel
-		logFunc    func(*Logger)
-		shouldLog  bool
-		levelName  string
+		logLevel  LogLevel
+		logFunc   func(*Logger)
+		shouldLog bool
+		levelName string
 	}{
 		{INFO, func(l *Logger) { l.Debug("debug") }, false, "DEBUG"},
 		{INFO, func(l *Logger) { l.Info("info") }, true, "INFO"},

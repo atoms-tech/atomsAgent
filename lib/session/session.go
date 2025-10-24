@@ -32,18 +32,18 @@ type UserSession struct {
 type SessionStatus string
 
 const (
-	SessionStatusActive    SessionStatus = "active"
-	SessionStatusInactive  SessionStatus = "inactive"
+	SessionStatusActive     SessionStatus = "active"
+	SessionStatusInactive   SessionStatus = "inactive"
 	SessionStatusTerminated SessionStatus = "terminated"
 )
 
 type SessionConfig struct {
-	AgentType    msgfmt.AgentType `json:"agentType"`
-	TermWidth    uint16           `json:"termWidth"`
-	TermHeight   uint16           `json:"termHeight"`
-	InitialPrompt string          `json:"initialPrompt,omitempty"`
-	Environment  map[string]string `json:"environment"`
-	Credentials  map[string]string `json:"credentials"`
+	AgentType     msgfmt.AgentType  `json:"agentType"`
+	TermWidth     uint16            `json:"termWidth"`
+	TermHeight    uint16            `json:"termHeight"`
+	InitialPrompt string            `json:"initialPrompt,omitempty"`
+	Environment   map[string]string `json:"environment"`
+	Credentials   map[string]string `json:"credentials"`
 }
 
 type MCPConfig struct {
@@ -74,7 +74,7 @@ func NewSessionManager(baseDir string) *SessionManager {
 func (sm *SessionManager) CreateSession(ctx context.Context, userID, orgID string, agentType msgfmt.AgentType, config *SessionConfig) (*UserSession, error) {
 	sessionID := generateSessionID()
 	workspace := filepath.Join(sm.baseDir, "workspaces", userID, sessionID)
-	
+
 	// Create isolated workspace directory
 	if err := os.MkdirAll(workspace, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create workspace: %w", err)
@@ -103,7 +103,7 @@ func (sm *SessionManager) CreateSession(ctx context.Context, userID, orgID strin
 func (sm *SessionManager) GetSession(sessionID string) (*UserSession, bool) {
 	sm.mutex.RLock()
 	defer sm.mutex.RUnlock()
-	
+
 	session, exists := sm.sessions[sessionID]
 	return session, exists
 }
@@ -112,7 +112,7 @@ func (sm *SessionManager) GetSession(sessionID string) (*UserSession, bool) {
 func (sm *SessionManager) ListUserSessions(userID string) []*UserSession {
 	sm.mutex.RLock()
 	defer sm.mutex.RUnlock()
-	
+
 	var userSessions []*UserSession
 	for _, session := range sm.sessions {
 		if session.UserID == userID {
@@ -126,7 +126,7 @@ func (sm *SessionManager) ListUserSessions(userID string) []*UserSession {
 func (sm *SessionManager) TerminateSession(sessionID string) error {
 	sm.mutex.Lock()
 	defer sm.mutex.Unlock()
-	
+
 	session, exists := sm.sessions[sessionID]
 	if !exists {
 		return fmt.Errorf("session not found: %s", sessionID)
@@ -134,7 +134,8 @@ func (sm *SessionManager) TerminateSession(sessionID string) error {
 
 	// Terminate the process if running
 	if session.Process != nil {
-		session.Process.Kill()
+		// Use SIGTERM to gracefully terminate the process
+		_ = session.Process.Signal(os.Kill)
 	}
 
 	// Update status
@@ -157,7 +158,7 @@ func (sm *SessionManager) TerminateSession(sessionID string) error {
 func (s *UserSession) SetMCPs(mcps []MCPConfig) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	
+
 	s.MCPs = mcps
 	s.UpdatedAt = time.Now()
 }
@@ -166,7 +167,7 @@ func (s *UserSession) SetMCPs(mcps []MCPConfig) {
 func (s *UserSession) SetSystemPrompt(prompt string) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	
+
 	s.SystemPrompt = prompt
 	s.UpdatedAt = time.Now()
 }
@@ -180,7 +181,7 @@ func (s *UserSession) GetWorkspacePath() string {
 func (s *UserSession) IsActive() bool {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
-	
+
 	return s.Status == SessionStatusActive
 }
 
@@ -188,7 +189,7 @@ func (s *UserSession) IsActive() bool {
 func (s *UserSession) UpdateStatus(status SessionStatus) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	
+
 	s.Status = status
 	s.UpdatedAt = time.Now()
 }

@@ -1,5 +1,46 @@
 version: '3.8'
 
+# ==============================================================================
+# AgentAPI Multi-Tenant Docker Compose Configuration
+# ==============================================================================
+#
+# This docker-compose file supports multi-tenant deployment with:
+# - PostgreSQL database (local or external)
+# - Redis cache (Upstash or local)
+# - Optional Redis Insights for debugging
+# - Optional Nginx reverse proxy
+#
+# REDIS CONFIGURATION:
+# --------------------
+# This setup supports two Redis deployment modes:
+#
+# 1. UPSTASH REDIS (Production - Recommended):
+#    - Managed Redis with automatic scaling and high availability
+#    - No infrastructure management needed
+#    - Get credentials from: https://console.upstash.com
+#    - Set environment variables: UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN
+#    - Comment out the 'redis' service in this file
+#    - Remove 'redis' from 'depends_on' in agentapi service
+#
+# 2. LOCAL REDIS (Development):
+#    - Docker-based Redis instance
+#    - Useful for local development and testing
+#    - Data persists in ./data/redis
+#    - Keep the 'redis' service uncommented
+#    - Keep 'redis' in 'depends_on' in agentapi service
+#
+# See docs/REDIS_CONFIGURATION.md for detailed setup instructions.
+#
+# QUICK START:
+# ------------
+# 1. Copy .env.example to .env: cp .env.example .env
+# 2. Fill in required credentials in .env
+# 3. Start services: docker-compose -f docker-compose.multitenant.yml up -d
+# 4. (Optional) Start with Redis Insights for debugging:
+#    docker-compose --profile development -f docker-compose.multitenant.yml up -d
+#
+# ==============================================================================
+
 services:
   # ============================================================================
   # AgentAPI Service - Multi-tenant application with Go backend and Python MCP
@@ -54,8 +95,42 @@ services:
       - FASTMCP_PORT=8000
       - FASTMCP_HOST=0.0.0.0
 
-      # Redis Configuration (optional)
+      # Redis Configuration
+      # Supports both Upstash Redis (production) and local Redis (development)
+      # When using Upstash: Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN
+      # When using local: Use the default REDIS_URL=redis://redis:6379
+      - REDIS_ENABLE=${REDIS_ENABLE:-true}
+      - REDIS_PROTOCOL=${REDIS_PROTOCOL:-native}
+
+      # Upstash Redis Configuration (production)
+      # Get these from https://console.upstash.com
+      - UPSTASH_REDIS_REST_URL=${UPSTASH_REDIS_REST_URL:-}
+      - UPSTASH_REDIS_REST_TOKEN=${UPSTASH_REDIS_REST_TOKEN:-}
+      - UPSTASH_REDIS_URL=${UPSTASH_REDIS_URL:-}
+
+      # Local Redis Configuration (fallback/development)
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      - REDIS_MAX_POOL_SIZE=${REDIS_MAX_POOL_SIZE:-10}
+      - REDIS_CONNECTION_TIMEOUT=${REDIS_CONNECTION_TIMEOUT:-5s}
+
+      # Rate Limiting (Redis-backed)
+      - RATE_LIMIT_ENABLED=${RATE_LIMIT_ENABLED:-true}
+      - RATE_LIMIT_REQUESTS_PER_MINUTE=${RATE_LIMIT_REQUESTS_PER_MINUTE:-60}
+      - RATE_LIMIT_BURST_SIZE=${RATE_LIMIT_BURST_SIZE:-10}
+
+      # Circuit Breaker (Redis-backed)
+      - CIRCUIT_BREAKER_ENABLED=${CIRCUIT_BREAKER_ENABLED:-true}
+      - CIRCUIT_BREAKER_FAILURE_THRESHOLD=${CIRCUIT_BREAKER_FAILURE_THRESHOLD:-5}
+      - CIRCUIT_BREAKER_SUCCESS_THRESHOLD=${CIRCUIT_BREAKER_SUCCESS_THRESHOLD:-2}
+      - CIRCUIT_BREAKER_TIMEOUT=${CIRCUIT_BREAKER_TIMEOUT:-30s}
+
+      # Session Storage (Redis-backed)
+      - SESSION_STORAGE=${SESSION_STORAGE:-redis}
+      - SESSION_TTL=${SESSION_TTL:-3600s}
+      - SESSION_CLEANUP_INTERVAL=${SESSION_CLEANUP_INTERVAL:-300s}
+
+      # Token Encryption
+      - TOKEN_ENCRYPTION_KEY=${TOKEN_ENCRYPTION_KEY:-change-this-to-a-random-32-byte-key}
 
       # Logging Configuration
       - LOG_LEVEL=${LOG_LEVEL:-info}
@@ -94,8 +169,9 @@ services:
           memory: 2G
 
     # Health Check
+    # Verifies both application server and Redis connectivity
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3284/status"]
+      test: ["CMD", "sh", "-c", "wget --no-verbose --tries=1 --spider http://localhost:3284/status || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -176,7 +252,27 @@ services:
     user: postgres
 
   # ============================================================================
-  # Redis Cache - For session storage and caching (optional)
+  # Redis Cache - For session storage, rate limiting, and caching
+  # ============================================================================
+  # DEPLOYMENT OPTIONS:
+  #
+  # 1. UPSTASH REDIS (Production/Serverless - Recommended):
+  #    - Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN in .env
+  #    - Comment out this entire redis service block
+  #    - Upstash provides managed Redis with REST API
+  #    - No infrastructure management needed
+  #    - Automatic scaling and high availability
+  #    - Get credentials from: https://console.upstash.com
+  #
+  # 2. LOCAL REDIS (Development/Testing):
+  #    - Keep this service uncommented
+  #    - Uses docker-compose local Redis instance
+  #    - Useful for development and testing
+  #    - Data persists in ./data/redis volume
+  #
+  # To switch between modes:
+  # - Upstash: Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN
+  # - Local: Leave UPSTASH_REDIS_REST_URL empty or comment it out
   # ============================================================================
   redis:
     image: redis:7-alpine
@@ -184,6 +280,7 @@ services:
     ports:
       - "${REDIS_PORT:-6379}:6379"
 
+    # Redis server configuration with persistence and memory management
     command: >
       redis-server
       --appendonly yes
@@ -195,6 +292,7 @@ services:
       --maxmemory ${REDIS_MAX_MEMORY:-256mb}
       --maxmemory-policy allkeys-lru
       --loglevel ${REDIS_LOG_LEVEL:-notice}
+      --requirepass ${REDIS_PASSWORD:-}
 
     volumes:
       # Persistent cache storage
@@ -233,6 +331,61 @@ services:
     labels:
       - "com.agentapi.service=cache"
       - "com.agentapi.environment=${NODE_ENV:-production}"
+
+  # ============================================================================
+  # Redis Insights - Redis GUI for development and debugging
+  # ============================================================================
+  # Optional service for visualizing and debugging Redis data
+  # Access at: http://localhost:8001
+  # Useful for:
+  # - Viewing cached data
+  # - Debugging session storage
+  # - Monitoring rate limits
+  # - Inspecting circuit breaker states
+  # ============================================================================
+  redis-insights:
+    image: redislabs/redisinsight:latest
+    container_name: agentapi-redis-insights
+    ports:
+      - "8001:8001"
+
+    volumes:
+      # Persistent RedisInsight configuration
+      - redis_insights_data:/db
+
+    networks:
+      - agentapi-network
+
+    depends_on:
+      redis:
+        condition: service_healthy
+
+    restart: unless-stopped
+
+    # Resource Limits
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+    # Logging Configuration
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    labels:
+      - "com.agentapi.service=redis-insights"
+      - "com.agentapi.environment=${NODE_ENV:-production}"
+
+    profiles:
+      - development
+      - debug
 
   # ============================================================================
   # Nginx Reverse Proxy - Optional for production-like setup
@@ -312,6 +465,17 @@ volumes:
       device: ${REDIS_DATA_PATH:-./data/redis}
     labels:
       - "com.agentapi.volume=cache"
+      - "com.agentapi.backup=false"
+
+  # Redis Insights data
+  redis_insights_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${REDIS_INSIGHTS_DATA_PATH:-./data/redis-insights}
+    labels:
+      - "com.agentapi.volume=redis-insights"
       - "com.agentapi.backup=false"
 
   # Nginx logs (if using nginx)

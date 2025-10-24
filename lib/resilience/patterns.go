@@ -156,8 +156,8 @@ func DefaultRetryConfig() RetryConfig {
 
 // CircuitBreakerWithRetry wraps a circuit breaker with retry logic
 type CircuitBreakerWithRetry struct {
-	cb           *CircuitBreaker
-	retryConfig  RetryConfig
+	cb          *CircuitBreaker
+	retryConfig RetryConfig
 }
 
 // NewCircuitBreakerWithRetry creates a circuit breaker with retry logic
@@ -274,11 +274,11 @@ func (f *CircuitBreakerWithFallback[T]) CircuitBreaker() *CircuitBreaker {
 
 // AdaptiveCircuitBreaker adjusts thresholds based on error rates
 type AdaptiveCircuitBreaker struct {
-	cb                *CircuitBreaker
-	mu                sync.RWMutex
-	errorRate         float64
-	adjustmentTicker  *time.Ticker
-	baseConfig        CBConfig
+	cb               *CircuitBreaker
+	mu               sync.RWMutex
+	errorRate        float64
+	adjustmentTicker *time.Ticker
+	baseConfig       CBConfig
 }
 
 // NewAdaptiveCircuitBreaker creates a circuit breaker with adaptive thresholds

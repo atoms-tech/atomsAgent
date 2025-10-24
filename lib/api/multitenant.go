@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"github.com/coder/agentapi/lib/auth"
-	"github.com/coder/agentapi/lib/msgfmt"
-	"github.com/coder/agentapi/lib/session"
 	"github.com/coder/agentapi/lib/mcp"
+	"github.com/coder/agentapi/lib/msgfmt"
 	"github.com/coder/agentapi/lib/prompt"
+	"github.com/coder/agentapi/lib/session"
 )
 
 // MultiTenantAPI handles multi-tenant operations
@@ -36,14 +36,14 @@ func NewMultiTenantAPI(sessionManager *session.SessionManager) *MultiTenantAPI {
 
 // CreateSessionRequest represents a request to create a new session
 type CreateSessionRequest struct {
-	AgentType      msgfmt.AgentType `json:"agentType"`
-	TermWidth      uint16           `json:"termWidth,omitempty"`
-	TermHeight     uint16           `json:"termHeight,omitempty"`
-	InitialPrompt  string           `json:"initialPrompt,omitempty"`
+	AgentType      msgfmt.AgentType  `json:"agentType"`
+	TermWidth      uint16            `json:"termWidth,omitempty"`
+	TermHeight     uint16            `json:"termHeight,omitempty"`
+	InitialPrompt  string            `json:"initialPrompt,omitempty"`
 	Environment    map[string]string `json:"environment,omitempty"`
 	Credentials    map[string]string `json:"credentials,omitempty"`
-	MCPConfigs     []mcp.MCPConfig  `json:"mcpConfigs,omitempty"`
-	SystemPromptID string           `json:"systemPromptId,omitempty"`
+	MCPConfigs     []mcp.MCPConfig   `json:"mcpConfigs,omitempty"`
+	SystemPromptID string            `json:"systemPromptId,omitempty"`
 }
 
 // CreateSessionResponse represents the response for session creation
@@ -58,18 +58,18 @@ func (api *MultiTenantAPI) CreateSession(w http.ResponseWriter, r *http.Request)
 	ctx := r.Context()
 	userID := getUserIDFromContext(ctx)
 	orgID := getOrgIDFromContext(ctx)
-	
+
 	if userID == "" || orgID == "" {
 		http.Error(w, "Missing user or organization context", http.StatusUnauthorized)
 		return
 	}
-	
+
 	var req CreateSessionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	
+
 	// Set defaults
 	if req.TermWidth == 0 {
 		req.TermWidth = 80
@@ -77,17 +77,17 @@ func (api *MultiTenantAPI) CreateSession(w http.ResponseWriter, r *http.Request)
 	if req.TermHeight == 0 {
 		req.TermHeight = 1000
 	}
-	
+
 	// Create session config
 	config := &session.SessionConfig{
-		AgentType:      req.AgentType,
-		TermWidth:      req.TermWidth,
-		TermHeight:     req.TermHeight,
-		InitialPrompt:  req.InitialPrompt,
-		Environment:    req.Environment,
-		Credentials:    req.Credentials,
+		AgentType:     req.AgentType,
+		TermWidth:     req.TermWidth,
+		TermHeight:    req.TermHeight,
+		InitialPrompt: req.InitialPrompt,
+		Environment:   req.Environment,
+		Credentials:   req.Credentials,
 	}
-	
+
 	// Create session
 	userSession, err := api.SessionManager.CreateSession(ctx, userID, orgID, req.AgentType, config)
 	if err != nil {
@@ -95,32 +95,32 @@ func (api *MultiTenantAPI) CreateSession(w http.ResponseWriter, r *http.Request)
 		http.Error(w, fmt.Sprintf("Failed to create session: %v", err), http.StatusInternalServerError)
 		return
 	}
-	
+
 	// Set MCPs if provided
 	if len(req.MCPConfigs) > 0 {
 		userSession.SetMCPs(req.MCPConfigs)
 	}
-	
+
 	// Set system prompt if provided
 	if req.SystemPromptID != "" {
 		// TODO: Load system prompt from database and set it
 		// For now, we'll use a placeholder
 		userSession.SetSystemPrompt("System prompt placeholder")
 	}
-	
+
 	// Log successful creation
 	api.AuditLogger.Log(ctx, userID, orgID, "session_created", "session", userSession.ID, map[string]any{
 		"agentType": req.AgentType,
 		"workspace": userSession.Workspace,
 	})
-	
+
 	// Return response
 	response := CreateSessionResponse{
 		SessionID: userSession.ID,
 		Workspace: userSession.Workspace,
 		Status:    string(userSession.Status),
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
@@ -130,24 +130,24 @@ func (api *MultiTenantAPI) GetSession(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	userID := getUserIDFromContext(ctx)
 	sessionID := getSessionIDFromPath(r.URL.Path)
-	
+
 	if userID == "" {
 		http.Error(w, "Missing user context", http.StatusUnauthorized)
 		return
 	}
-	
+
 	session, exists := api.SessionManager.GetSession(sessionID)
 	if !exists {
 		http.Error(w, "Session not found", http.StatusNotFound)
 		return
 	}
-	
+
 	// Check if user owns this session
 	if session.UserID != userID {
 		http.Error(w, "Access denied", http.StatusForbidden)
 		return
 	}
-	
+
 	// Return session details
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(session)
@@ -158,34 +158,34 @@ func (api *MultiTenantAPI) TerminateSession(w http.ResponseWriter, r *http.Reque
 	ctx := r.Context()
 	userID := getUserIDFromContext(ctx)
 	sessionID := getSessionIDFromPath(r.URL.Path)
-	
+
 	if userID == "" {
 		http.Error(w, "Missing user context", http.StatusUnauthorized)
 		return
 	}
-	
+
 	session, exists := api.SessionManager.GetSession(sessionID)
 	if !exists {
 		http.Error(w, "Session not found", http.StatusNotFound)
 		return
 	}
-	
+
 	// Check if user owns this session
 	if session.UserID != userID {
 		http.Error(w, "Access denied", http.StatusForbidden)
 		return
 	}
-	
+
 	// Terminate session
 	if err := api.SessionManager.TerminateSession(sessionID); err != nil {
 		api.AuditLogger.Log(ctx, userID, session.OrgID, "session_terminate_failed", "session", sessionID, map[string]any{"error": err.Error()})
 		http.Error(w, fmt.Sprintf("Failed to terminate session: %v", err), http.StatusInternalServerError)
 		return
 	}
-	
+
 	// Log successful termination
 	api.AuditLogger.Log(ctx, userID, session.OrgID, "session_terminated", "session", sessionID, nil)
-	
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -193,14 +193,14 @@ func (api *MultiTenantAPI) TerminateSession(w http.ResponseWriter, r *http.Reque
 func (api *MultiTenantAPI) ListUserSessions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	userID := getUserIDFromContext(ctx)
-	
+
 	if userID == "" {
 		http.Error(w, "Missing user context", http.StatusUnauthorized)
 		return
 	}
-	
+
 	sessions := api.SessionManager.ListUserSessions(userID)
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(sessions)
 }
@@ -230,7 +230,7 @@ func NewAuditLogger() *AuditLogger {
 // Log logs an audit event
 func (al *AuditLogger) Log(ctx context.Context, userID, orgID, action, resourceType, resourceID string, details map[string]any) {
 	// TODO: Implement actual logging
-	fmt.Printf("AUDIT: user=%s org=%s action=%s resource=%s:%s details=%+v\n", 
+	fmt.Printf("AUDIT: user=%s org=%s action=%s resource=%s:%s details=%+v\n",
 		userID, orgID, action, resourceType, resourceID, details)
 }
 

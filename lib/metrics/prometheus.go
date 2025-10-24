@@ -19,42 +19,42 @@ type MetricsRegistry struct {
 	registry *prometheus.Registry
 
 	// HTTP metrics
-	httpRequestsTotal          *prometheus.CounterVec
-	httpRequestDuration        *prometheus.HistogramVec
-	httpRequestsInFlight       prometheus.Gauge
-	httpResponseSizeBytes      *prometheus.HistogramVec
+	httpRequestsTotal     *prometheus.CounterVec
+	httpRequestDuration   *prometheus.HistogramVec
+	httpRequestsInFlight  prometheus.Gauge
+	httpResponseSizeBytes *prometheus.HistogramVec
 
 	// MCP metrics
-	mcpConnectionsActive       prometheus.Gauge
-	mcpConnectionErrorsTotal   *prometheus.CounterVec
-	mcpOperationsTotal         *prometheus.CounterVec
-	mcpOperationDuration       *prometheus.HistogramVec
+	mcpConnectionsActive     prometheus.Gauge
+	mcpConnectionErrorsTotal *prometheus.CounterVec
+	mcpOperationsTotal       *prometheus.CounterVec
+	mcpOperationDuration     *prometheus.HistogramVec
 
 	// Session metrics
-	sessionCount               prometheus.Gauge
-	sessionCreatedTotal        prometheus.Counter
-	sessionDeletedTotal        prometheus.Counter
-	sessionDuration            prometheus.Histogram
+	sessionCount        prometheus.Gauge
+	sessionCreatedTotal prometheus.Counter
+	sessionDeletedTotal prometheus.Counter
+	sessionDuration     prometheus.Histogram
 
 	// Database metrics
-	databaseQueryDuration      *prometheus.HistogramVec
-	databaseQueriesTotal       *prometheus.CounterVec
-	databaseConnectionsActive  prometheus.Gauge
-	databaseConnectionErrors   prometheus.Counter
+	databaseQueryDuration     *prometheus.HistogramVec
+	databaseQueriesTotal      *prometheus.CounterVec
+	databaseConnectionsActive prometheus.Gauge
+	databaseConnectionErrors  prometheus.Counter
 
 	// Cache metrics
-	cacheHitsTotal             *prometheus.CounterVec
-	cacheMissesTotal           *prometheus.CounterVec
-	cacheOperationDuration     *prometheus.HistogramVec
-	cacheSize                  *prometheus.GaugeVec
+	cacheHitsTotal         *prometheus.CounterVec
+	cacheMissesTotal       *prometheus.CounterVec
+	cacheOperationDuration *prometheus.HistogramVec
+	cacheSize              *prometheus.GaugeVec
 
 	// System metrics
-	goroutinesCount            prometheus.Gauge
-	memoryAllocatedBytes       prometheus.Gauge
-	memoryHeapBytes            prometheus.Gauge
+	goroutinesCount      prometheus.Gauge
+	memoryAllocatedBytes prometheus.Gauge
+	memoryHeapBytes      prometheus.Gauge
 
-	mu                         sync.RWMutex
-	activeSessions             map[string]time.Time
+	mu             sync.RWMutex
+	activeSessions map[string]time.Time
 }
 
 // NewMetricsRegistry creates and initializes a new Prometheus metrics registry

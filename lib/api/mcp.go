@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -17,16 +18,29 @@ import (
 	"time"
 
 	"github.com/coder/agentapi/lib/mcp"
+	"github.com/coder/agentapi/lib/resilience"
 	"github.com/coder/agentapi/lib/session"
 )
 
 // MCPHandler handles MCP configuration endpoints
 type MCPHandler struct {
-	db             *sql.DB
-	fastmcpClient  *mcp.FastMCPClient
-	sessionMgr     *session.SessionManager
-	auditLogger    *AuditLogger
-	encryptionKey  []byte // 32 bytes for AES-256
+	db            *sql.DB
+	fastmcpClient *mcp.FastMCPClient
+	sessionMgr    *session.SessionManager
+	auditLogger   *AuditLogger
+	encryptionKey []byte // 32 bytes for AES-256
+
+	// Circuit breakers for different MCP operations
+	breakers *mcpCircuitBreakers
+}
+
+// mcpCircuitBreakers holds circuit breakers for each MCP operation type
+type mcpCircuitBreakers struct {
+	connect        *resilience.CircuitBreaker
+	callTool       *resilience.CircuitBreaker
+	listTools      *resilience.CircuitBreaker
+	disconnect     *resilience.CircuitBreaker
+	testConnection *resilience.CircuitBreaker
 }
 
 // NewMCPHandler creates a new MCP handler
@@ -43,81 +57,142 @@ func NewMCPHandler(db *sql.DB, fastmcpClient *mcp.FastMCPClient, sessionMgr *ses
 		key = key[:32]
 	}
 
+	// Initialize circuit breakers for MCP operations
+	breakers, err := initCircuitBreakers()
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize circuit breakers: %w", err)
+	}
+
 	return &MCPHandler{
 		db:            db,
 		fastmcpClient: fastmcpClient,
 		sessionMgr:    sessionMgr,
 		auditLogger:   auditLogger,
 		encryptionKey: key,
+		breakers:      breakers,
 	}, nil
+}
+
+// initCircuitBreakers initializes all circuit breakers for MCP operations
+func initCircuitBreakers() (*mcpCircuitBreakers, error) {
+	// Circuit breaker configuration
+	config := resilience.CBConfig{
+		FailureThreshold:      5,
+		SuccessThreshold:      2,
+		Timeout:               30 * time.Second,
+		MaxConcurrentRequests: 100,
+		OnStateChange:         onCircuitBreakerStateChange,
+	}
+
+	// Create circuit breakers for each operation type
+	connect, err := resilience.NewCircuitBreaker("mcp_connect", config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create connect breaker: %w", err)
+	}
+
+	callTool, err := resilience.NewCircuitBreaker("mcp_call_tool", config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create call_tool breaker: %w", err)
+	}
+
+	listTools, err := resilience.NewCircuitBreaker("mcp_list_tools", config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create list_tools breaker: %w", err)
+	}
+
+	disconnect, err := resilience.NewCircuitBreaker("mcp_disconnect", config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create disconnect breaker: %w", err)
+	}
+
+	testConnection, err := resilience.NewCircuitBreaker("mcp_test_connection", config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create test_connection breaker: %w", err)
+	}
+
+	return &mcpCircuitBreakers{
+		connect:        connect,
+		callTool:       callTool,
+		listTools:      listTools,
+		disconnect:     disconnect,
+		testConnection: testConnection,
+	}, nil
+}
+
+// onCircuitBreakerStateChange is called when a circuit breaker changes state
+func onCircuitBreakerStateChange(name string, from resilience.State, to resilience.State) {
+	log.Printf("[MCP Circuit Breaker] %s: State changed from %s to %s", name, from.String(), to.String())
+
+	// TODO: Export to metrics system (Prometheus)
+	// metrics.RecordCircuitBreakerStateChange(name, to.String())
 }
 
 // Request/Response types
 
 // CreateMCPRequest represents a request to create a new MCP configuration
 type CreateMCPRequest struct {
-	Name        string            `json:"name" validate:"required,min=1,max=255"`
-	Type        string            `json:"type" validate:"required,oneof=http sse stdio"`
-	Endpoint    string            `json:"endpoint,omitempty"` // URL for http/sse, command for stdio
-	Command     string            `json:"command,omitempty"`  // Command to execute for stdio type
-	Args        []string          `json:"args,omitempty"`     // Command arguments for stdio type
-	AuthType    string            `json:"auth_type" validate:"required,oneof=none bearer oauth api_key"`
-	AuthToken   string            `json:"auth_token,omitempty"`   // Bearer token or API key
-	AuthHeader  string            `json:"auth_header,omitempty"`  // Custom header name for auth
-	Config      map[string]any    `json:"config,omitempty"`       // Additional configuration
-	Scope       string            `json:"scope" validate:"required,oneof=org user"`
-	Enabled     bool              `json:"enabled"`
-	Description string            `json:"description,omitempty" validate:"max=1000"`
+	Name        string         `json:"name" validate:"required,min=1,max=255"`
+	Type        string         `json:"type" validate:"required,oneof=http sse stdio"`
+	Endpoint    string         `json:"endpoint,omitempty"` // URL for http/sse, command for stdio
+	Command     string         `json:"command,omitempty"`  // Command to execute for stdio type
+	Args        []string       `json:"args,omitempty"`     // Command arguments for stdio type
+	AuthType    string         `json:"auth_type" validate:"required,oneof=none bearer oauth api_key"`
+	AuthToken   string         `json:"auth_token,omitempty"`  // Bearer token or API key
+	AuthHeader  string         `json:"auth_header,omitempty"` // Custom header name for auth
+	Config      map[string]any `json:"config,omitempty"`      // Additional configuration
+	Scope       string         `json:"scope" validate:"required,oneof=org user"`
+	Enabled     bool           `json:"enabled"`
+	Description string         `json:"description,omitempty" validate:"max=1000"`
 }
 
 // UpdateMCPRequest represents a request to update an MCP configuration
 type UpdateMCPRequest struct {
-	Name        *string           `json:"name,omitempty" validate:"omitempty,min=1,max=255"`
-	Type        *string           `json:"type,omitempty" validate:"omitempty,oneof=http sse stdio"`
-	Endpoint    *string           `json:"endpoint,omitempty"`
-	Command     *string           `json:"command,omitempty"`
-	Args        *[]string         `json:"args,omitempty"`
-	AuthType    *string           `json:"auth_type,omitempty" validate:"omitempty,oneof=none bearer oauth api_key"`
-	AuthToken   *string           `json:"auth_token,omitempty"`
-	AuthHeader  *string           `json:"auth_header,omitempty"`
-	Config      *map[string]any   `json:"config,omitempty"`
-	Enabled     *bool             `json:"enabled,omitempty"`
-	Description *string           `json:"description,omitempty" validate:"omitempty,max=1000"`
+	Name        *string         `json:"name,omitempty" validate:"omitempty,min=1,max=255"`
+	Type        *string         `json:"type,omitempty" validate:"omitempty,oneof=http sse stdio"`
+	Endpoint    *string         `json:"endpoint,omitempty"`
+	Command     *string         `json:"command,omitempty"`
+	Args        *[]string       `json:"args,omitempty"`
+	AuthType    *string         `json:"auth_type,omitempty" validate:"omitempty,oneof=none bearer oauth api_key"`
+	AuthToken   *string         `json:"auth_token,omitempty"`
+	AuthHeader  *string         `json:"auth_header,omitempty"`
+	Config      *map[string]any `json:"config,omitempty"`
+	Enabled     *bool           `json:"enabled,omitempty"`
+	Description *string         `json:"description,omitempty" validate:"omitempty,max=1000"`
 }
 
 // MCPConfiguration represents an MCP configuration with metadata
 type MCPConfiguration struct {
-	ID          string            `json:"id"`
-	Name        string            `json:"name"`
-	Type        string            `json:"type"`
-	Endpoint    string            `json:"endpoint,omitempty"`
-	Command     string            `json:"command,omitempty"`
-	Args        []string          `json:"args,omitempty"`
-	AuthType    string            `json:"auth_type"`
-	AuthHeader  string            `json:"auth_header,omitempty"`
-	Config      map[string]any    `json:"config,omitempty"`
-	Scope       string            `json:"scope"`
-	OrgID       string            `json:"org_id,omitempty"`
-	UserID      string            `json:"user_id,omitempty"`
-	Enabled     bool              `json:"enabled"`
-	Description string            `json:"description,omitempty"`
-	CreatedAt   time.Time         `json:"created_at"`
-	UpdatedAt   time.Time         `json:"updated_at"`
-	CreatedBy   string            `json:"created_by"`
-	UpdatedBy   string            `json:"updated_by"`
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	Type        string         `json:"type"`
+	Endpoint    string         `json:"endpoint,omitempty"`
+	Command     string         `json:"command,omitempty"`
+	Args        []string       `json:"args,omitempty"`
+	AuthType    string         `json:"auth_type"`
+	AuthHeader  string         `json:"auth_header,omitempty"`
+	Config      map[string]any `json:"config,omitempty"`
+	Scope       string         `json:"scope"`
+	OrgID       string         `json:"org_id,omitempty"`
+	UserID      string         `json:"user_id,omitempty"`
+	Enabled     bool           `json:"enabled"`
+	Description string         `json:"description,omitempty"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+	CreatedBy   string         `json:"created_by"`
+	UpdatedBy   string         `json:"updated_by"`
 }
 
 // TestConnectionRequest represents a request to test MCP connection
 type TestConnectionRequest struct {
-	Name       string            `json:"name" validate:"required"`
-	Type       string            `json:"type" validate:"required,oneof=http sse stdio"`
-	Endpoint   string            `json:"endpoint,omitempty"`
-	Command    string            `json:"command,omitempty"`
-	Args       []string          `json:"args,omitempty"`
-	AuthType   string            `json:"auth_type" validate:"required,oneof=none bearer oauth api_key"`
-	AuthToken  string            `json:"auth_token,omitempty"`
-	AuthHeader string            `json:"auth_header,omitempty"`
-	Config     map[string]any    `json:"config,omitempty"`
+	Name       string         `json:"name" validate:"required"`
+	Type       string         `json:"type" validate:"required,oneof=http sse stdio"`
+	Endpoint   string         `json:"endpoint,omitempty"`
+	Command    string         `json:"command,omitempty"`
+	Args       []string       `json:"args,omitempty"`
+	AuthType   string         `json:"auth_type" validate:"required,oneof=none bearer oauth api_key"`
+	AuthToken  string         `json:"auth_token,omitempty"`
+	AuthHeader string         `json:"auth_header,omitempty"`
+	Config     map[string]any `json:"config,omitempty"`
 }
 
 // TestConnectionResponse represents the response from testing an MCP connection
@@ -140,6 +215,88 @@ type ErrorResponse struct {
 	Error   string `json:"error"`
 	Code    string `json:"code,omitempty"`
 	Details any    `json:"details,omitempty"`
+}
+
+// Circuit Breaker Helper Methods
+
+// handleCircuitBreakerError converts circuit breaker errors to HTTP responses
+func (h *MCPHandler) handleCircuitBreakerError(w http.ResponseWriter, err error, operation string) {
+	switch err {
+	case resilience.ErrCircuitOpen:
+		h.sendCircuitOpenResponse(w, operation)
+	case resilience.ErrTooManyRequests:
+		h.sendTooManyRequestsResponse(w, operation)
+	default:
+		// Other errors are handled normally
+		h.sendError(w, err.Error(), http.StatusInternalServerError, "operation_failed")
+	}
+}
+
+// sendCircuitOpenResponse sends a 503 Service Unavailable response when circuit is open
+func (h *MCPHandler) sendCircuitOpenResponse(w http.ResponseWriter, operation string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", "30") // Circuit timeout is 30 seconds
+	w.WriteHeader(http.StatusServiceUnavailable)
+
+	response := map[string]any{
+		"error":   "Service temporarily unavailable",
+		"code":    "circuit_breaker_open",
+		"message": fmt.Sprintf("The %s operation is currently unavailable due to repeated failures. Please try again in 30 seconds.", operation),
+		"details": map[string]any{
+			"operation":           operation,
+			"circuit_state":       "open",
+			"retry_after_seconds": 30,
+		},
+	}
+
+	json.NewEncoder(w).Encode(response)
+}
+
+// sendTooManyRequestsResponse sends a 429 Too Many Requests response when breaker rejects
+func (h *MCPHandler) sendTooManyRequestsResponse(w http.ResponseWriter, operation string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", "5")
+	w.WriteHeader(http.StatusTooManyRequests)
+
+	response := map[string]any{
+		"error":   "Too many requests",
+		"code":    "circuit_breaker_half_open",
+		"message": fmt.Sprintf("The %s operation is recovering and cannot accept more requests at this time. Please try again shortly.", operation),
+		"details": map[string]any{
+			"operation":           operation,
+			"circuit_state":       "half-open",
+			"retry_after_seconds": 5,
+		},
+	}
+
+	json.NewEncoder(w).Encode(response)
+}
+
+// getDegradedServiceResponse returns a fallback response for degraded service
+func (h *MCPHandler) getDegradedServiceResponse(operation string) map[string]any {
+	return map[string]any{
+		"status":    "degraded",
+		"message":   fmt.Sprintf("The %s operation is currently degraded. Using cached or fallback data.", operation),
+		"operation": operation,
+		"timestamp": time.Now().UTC(),
+	}
+}
+
+// logCircuitBreakerMetrics logs circuit breaker statistics
+func (h *MCPHandler) logCircuitBreakerMetrics(ctx context.Context, operation string, breaker *resilience.CircuitBreaker) {
+	stats := breaker.Stats()
+
+	log.Printf("[Circuit Breaker Metrics] Operation: %s, State: %s, Total Requests: %d, Successes: %d, Failures: %d, Consecutive Failures: %d",
+		operation,
+		stats.State.String(),
+		stats.TotalRequests,
+		stats.TotalSuccesses,
+		stats.TotalFailures,
+		stats.ConsecutiveFailures,
+	)
+
+	// TODO: Export to Prometheus
+	// h.metrics.RecordCircuitBreakerStats(operation, stats)
 }
 
 // Validation helpers
@@ -813,16 +970,20 @@ func (h *MCPHandler) DeleteMCPConfiguration(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Disconnect active clients if connected
+	// Disconnect active clients if connected (with circuit breaker protection)
 	if h.fastmcpClient.IsConnected(mcpID) {
 		disconnectCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		if err := h.fastmcpClient.DisconnectMCP(disconnectCtx, mcpID); err != nil {
+		disconnectErr := h.breakers.disconnect.Execute(disconnectCtx, func() error {
+			return h.fastmcpClient.DisconnectMCP(disconnectCtx, mcpID)
+		})
+
+		if disconnectErr != nil {
 			// Log warning but continue with deletion
 			h.auditLogger.Log(ctx, userID, orgID, "mcp_disconnect_warning", "mcp", mcpID, map[string]any{
 				"warning": "failed to disconnect before deletion",
-				"error":   err.Error(),
+				"error":   disconnectErr.Error(),
 			})
 		}
 	}
@@ -890,17 +1051,73 @@ func (h *MCPHandler) TestMCPConnection(w http.ResponseWriter, r *http.Request) {
 		Auth:     authConfig,
 	}
 
-	// Try to connect
+	// Try to connect with circuit breaker protection
 	testCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	err := h.fastmcpClient.ConnectMCP(testCtx, mcpConfig)
+	var response TestConnectionResponse
+
+	// Wrap connection in circuit breaker
+	err := h.breakers.testConnection.Execute(testCtx, func() error {
+		connectErr := h.fastmcpClient.ConnectMCP(testCtx, mcpConfig)
+		if connectErr != nil {
+			return connectErr
+		}
+
+		// Connection successful - try to list tools, resources, and prompts
+		defer h.fastmcpClient.DisconnectMCP(context.Background(), testID)
+
+		response.Success = true
+
+		// List tools with circuit breaker
+		if listErr := h.breakers.listTools.Execute(testCtx, func() error {
+			tools, toolsErr := h.fastmcpClient.ListTools(testCtx, testID)
+			if toolsErr == nil {
+				response.Tools = make([]string, len(tools))
+				for i, tool := range tools {
+					response.Tools[i] = tool.Name
+				}
+			}
+			return toolsErr
+		}); listErr != nil {
+			// Log error but continue
+			log.Printf("Failed to list tools during test: %v", listErr)
+		}
+
+		// List resources
+		resources, resErr := h.fastmcpClient.ListResources(testCtx, testID)
+		if resErr == nil {
+			response.Resources = make([]string, len(resources))
+			for i, res := range resources {
+				response.Resources[i] = res.Name
+			}
+		}
+
+		// List prompts
+		prompts, promptErr := h.fastmcpClient.ListPrompts(testCtx, testID)
+		if promptErr == nil {
+			response.Prompts = make([]string, len(prompts))
+			for i, prompt := range prompts {
+				response.Prompts[i] = prompt.Name
+			}
+		}
+
+		return nil
+	})
+
 	if err != nil {
+		// Check if it's a circuit breaker error
+		if err == resilience.ErrCircuitOpen || err == resilience.ErrTooManyRequests {
+			h.handleCircuitBreakerError(w, err, "test_connection")
+			return
+		}
+
+		// Regular connection failure
 		h.auditLogger.Log(ctx, userID, orgID, "mcp_test_failed", "mcp", testID, map[string]any{
 			"error": err.Error(),
 		})
 
-		response := TestConnectionResponse{
+		response = TestConnectionResponse{
 			Success: false,
 			Error:   err.Error(),
 		}
@@ -910,39 +1127,8 @@ func (h *MCPHandler) TestMCPConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Connection successful - try to list tools, resources, and prompts
-	defer h.fastmcpClient.DisconnectMCP(context.Background(), testID)
-
-	response := TestConnectionResponse{
-		Success: true,
-	}
-
-	// List tools
-	tools, err := h.fastmcpClient.ListTools(testCtx, testID)
-	if err == nil {
-		response.Tools = make([]string, len(tools))
-		for i, tool := range tools {
-			response.Tools[i] = tool.Name
-		}
-	}
-
-	// List resources
-	resources, err := h.fastmcpClient.ListResources(testCtx, testID)
-	if err == nil {
-		response.Resources = make([]string, len(resources))
-		for i, res := range resources {
-			response.Resources[i] = res.Name
-		}
-	}
-
-	// List prompts
-	prompts, err := h.fastmcpClient.ListPrompts(testCtx, testID)
-	if err == nil {
-		response.Prompts = make([]string, len(prompts))
-		for i, prompt := range prompts {
-			response.Prompts[i] = prompt.Name
-		}
-	}
+	// Log circuit breaker metrics
+	h.logCircuitBreakerMetrics(ctx, "test_connection", h.breakers.testConnection)
 
 	h.auditLogger.Log(ctx, userID, orgID, "mcp_test_success", "mcp", testID, map[string]any{
 		"tools_count":     len(response.Tools),
@@ -1083,4 +1269,99 @@ type MCPConfig struct {
 	AuthType string            `json:"auth_type"`
 	Config   map[string]any    `json:"config"`
 	Auth     map[string]string `json:"auth"`
+}
+
+// Circuit Breaker-Protected MCP Operations
+// These methods wrap FastMCP client calls with circuit breaker protection
+
+// ConnectMCPWithBreaker connects to an MCP server with circuit breaker protection
+func (h *MCPHandler) ConnectMCPWithBreaker(ctx context.Context, config mcp.MCPConfig) error {
+	return h.breakers.connect.Execute(ctx, func() error {
+		return h.fastmcpClient.ConnectMCP(ctx, config)
+	})
+}
+
+// DisconnectMCPWithBreaker disconnects from an MCP server with circuit breaker protection
+func (h *MCPHandler) DisconnectMCPWithBreaker(ctx context.Context, mcpID string) error {
+	return h.breakers.disconnect.Execute(ctx, func() error {
+		return h.fastmcpClient.DisconnectMCP(ctx, mcpID)
+	})
+}
+
+// ListToolsWithBreaker lists tools from an MCP server with circuit breaker protection
+func (h *MCPHandler) ListToolsWithBreaker(ctx context.Context, mcpID string) ([]mcp.Tool, error) {
+	var tools []mcp.Tool
+	err := h.breakers.listTools.Execute(ctx, func() error {
+		var listErr error
+		tools, listErr = h.fastmcpClient.ListTools(ctx, mcpID)
+		return listErr
+	})
+	return tools, err
+}
+
+// CallToolWithBreaker calls an MCP tool with circuit breaker protection
+func (h *MCPHandler) CallToolWithBreaker(ctx context.Context, mcpID, toolName string, args map[string]any) (any, error) {
+	var result any
+	err := h.breakers.callTool.Execute(ctx, func() error {
+		var callErr error
+		result, callErr = h.fastmcpClient.CallTool(ctx, mcpID, toolName, args)
+		return callErr
+	})
+	return result, err
+}
+
+// GetCircuitBreakerStats returns statistics for all circuit breakers
+func (h *MCPHandler) GetCircuitBreakerStats() map[string]resilience.CBStats {
+	return map[string]resilience.CBStats{
+		"connect":         h.breakers.connect.Stats(),
+		"call_tool":       h.breakers.callTool.Stats(),
+		"list_tools":      h.breakers.listTools.Stats(),
+		"disconnect":      h.breakers.disconnect.Stats(),
+		"test_connection": h.breakers.testConnection.Stats(),
+	}
+}
+
+// GetCircuitBreakerState returns the state of all circuit breakers
+func (h *MCPHandler) GetCircuitBreakerState() map[string]string {
+	return map[string]string{
+		"connect":         h.breakers.connect.State(),
+		"call_tool":       h.breakers.callTool.State(),
+		"list_tools":      h.breakers.listTools.State(),
+		"disconnect":      h.breakers.disconnect.State(),
+		"test_connection": h.breakers.testConnection.State(),
+	}
+}
+
+// ResetCircuitBreakers resets all circuit breakers to closed state
+func (h *MCPHandler) ResetCircuitBreakers() {
+	h.breakers.connect.Reset()
+	h.breakers.callTool.Reset()
+	h.breakers.listTools.Reset()
+	h.breakers.disconnect.Reset()
+	h.breakers.testConnection.Reset()
+	log.Println("[MCP Circuit Breakers] All circuit breakers have been reset")
+}
+
+// HealthCheck returns health status including circuit breaker states
+func (h *MCPHandler) HealthCheck() map[string]any {
+	states := h.GetCircuitBreakerState()
+	stats := h.GetCircuitBreakerStats()
+
+	health := map[string]any{
+		"status": "healthy",
+		"circuit_breakers": map[string]any{
+			"states": states,
+			"stats":  stats,
+		},
+	}
+
+	// Check if any circuit breaker is open
+	for _, state := range states {
+		if state == "open" {
+			health["status"] = "degraded"
+			break
+		}
+	}
+
+	return health
 }

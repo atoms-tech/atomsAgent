@@ -1,0 +1,36 @@
+# K6 Test Results
+results.json
+results.csv
+summary.html
+summary.json
+
+# Environment files (except examples)
+.env
+.env.local
+.env.staging
+.env.production
+!.env.example
+
+# K6 Cloud tokens
+.k6cloud
+
+# Grafana data
+grafana-data/
+
+# InfluxDB data
+influxdb-data/
+
+# Logs
+*.log
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

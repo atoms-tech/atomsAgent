@@ -1,3 +1,4 @@
+//go:build examples
 // +build examples
 
 package audit
@@ -149,8 +150,8 @@ func ExampleMCPTracking(ctx context.Context, logger *AuditLogger) {
 
 	// When MCP operation occurs
 	operation := map[string]any{
-		"operation": "list_files",
-		"path":      "/workspace",
+		"operation":  "list_files",
+		"path":       "/workspace",
 		"file_count": 42,
 	}
 	if err := logger.LogWithContext(ctx, ActionAccessed, ResourceTypeMCP, mcpName, operation); err != nil {
@@ -198,9 +199,9 @@ func ExampleAuthTracking(ctx context.Context, logger *AuditLogger) {
 
 	// Permission change
 	if err := logger.LogWithContext(ctx, ActionUpdated, ResourceTypeAuth, userID, map[string]any{
-		"action":   "permission_change",
-		"added":    []string{"admin"},
-		"removed":  []string{"user"},
+		"action":      "permission_change",
+		"added":       []string{"admin"},
+		"removed":     []string{"user"},
 		"modified_by": "admin-user",
 	}); err != nil {
 		println("Failed to log permission change:", err.Error())
@@ -343,9 +344,9 @@ func ExampleCustomEvents(ctx context.Context, logger *AuditLogger) {
 
 	// Option 2: Use ActionUpdated for state changes
 	err = logger.LogWithContext(ctx, ActionUpdated, ResourceTypeConfig, "feature-flag", map[string]any{
-		"flag_name": "new_ui_enabled",
-		"old_value": false,
-		"new_value": true,
+		"flag_name":          "new_ui_enabled",
+		"old_value":          false,
+		"new_value":          true,
 		"rollout_percentage": 50,
 	})
 	if err != nil {

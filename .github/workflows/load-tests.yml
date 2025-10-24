@@ -1,0 +1,259 @@
+name: Load Tests
+
+on:
+  # Run on schedule (nightly)
+  schedule:
+    - cron: '0 2 * * *'  # 2 AM UTC daily
+
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to test'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+      scenario:
+        description: 'Specific scenario to run (leave empty for all)'
+        required: false
+        type: string
+
+  # Run on PR for load test changes
+  pull_request:
+    paths:
+      - 'tests/load/**'
+      - '.github/workflows/load-tests.yml'
+
+jobs:
+  load-test:
+    name: Run K6 Load Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    strategy:
+      matrix:
+        scenario: ['authentication', 'mcp_connection', 'tool_execution', 'mixed_workload']
+      fail-fast: false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup test environment
+        id: setup
+        run: |
+          # Determine environment
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "ENVIRONMENT=staging" >> $GITHUB_OUTPUT
+            echo "VUS_FACTOR=0.1" >> $GITHUB_OUTPUT
+          elif [ -n "${{ github.event.inputs.environment }}" ]; then
+            echo "ENVIRONMENT=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
+            echo "VUS_FACTOR=0.5" >> $GITHUB_OUTPUT
+          else
+            echo "ENVIRONMENT=staging" >> $GITHUB_OUTPUT
+            echo "VUS_FACTOR=1.0" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Install K6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install k6
+
+      - name: Verify K6 installation
+        run: k6 version
+
+      - name: Configure test environment
+        env:
+          ENVIRONMENT: ${{ steps.setup.outputs.ENVIRONMENT }}
+        run: |
+          cd tests/load
+
+          # Create environment-specific config
+          if [ "$ENVIRONMENT" = "staging" ]; then
+            export BASE_URL="${{ secrets.STAGING_API_URL }}"
+            export OAUTH_BASE_URL="${{ secrets.STAGING_OAUTH_URL }}"
+          elif [ "$ENVIRONMENT" = "production" ]; then
+            export BASE_URL="${{ secrets.PROD_API_URL }}"
+            export OAUTH_BASE_URL="${{ secrets.PROD_OAUTH_URL }}"
+          fi
+
+          echo "BASE_URL=$BASE_URL" >> $GITHUB_ENV
+          echo "OAUTH_BASE_URL=$OAUTH_BASE_URL" >> $GITHUB_ENV
+
+      - name: Run load tests
+        env:
+          BASE_URL: ${{ env.BASE_URL }}
+          OAUTH_BASE_URL: ${{ env.OAUTH_BASE_URL }}
+          VUS_FACTOR: ${{ steps.setup.outputs.VUS_FACTOR }}
+        run: |
+          cd tests/load
+
+          SCENARIO_ARG=""
+          if [ -n "${{ github.event.inputs.scenario }}" ]; then
+            SCENARIO_ARG="--scenario ${{ github.event.inputs.scenario }}"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            SCENARIO_ARG="--scenario ${{ matrix.scenario }}"
+          fi
+
+          k6 run \
+            --out json=results-${{ matrix.scenario }}.json \
+            $SCENARIO_ARG \
+            k6_tests.js
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k6-results-${{ matrix.scenario }}
+          path: |
+            tests/load/results-*.json
+            tests/load/summary.html
+            tests/load/summary.json
+          retention-days: 30
+
+      - name: Parse test results
+        if: always()
+        id: parse_results
+        run: |
+          cd tests/load
+
+          if [ -f "results-${{ matrix.scenario }}.json" ]; then
+            # Extract key metrics
+            P95=$(jq -r '.metrics.http_req_duration.values["p(95)"]' results-${{ matrix.scenario }}.json)
+            P99=$(jq -r '.metrics.http_req_duration.values["p(99)"]' results-${{ matrix.scenario }}.json)
+            ERROR_RATE=$(jq -r '.metrics.http_req_failed.values.rate' results-${{ matrix.scenario }}.json)
+
+            echo "P95=$P95" >> $GITHUB_OUTPUT
+            echo "P99=$P99" >> $GITHUB_OUTPUT
+            echo "ERROR_RATE=$ERROR_RATE" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Comment PR with results
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const scenario = '${{ matrix.scenario }}';
+            const p95 = '${{ steps.parse_results.outputs.P95 }}';
+            const p99 = '${{ steps.parse_results.outputs.P99 }}';
+            const errorRate = '${{ steps.parse_results.outputs.ERROR_RATE }}';
+
+            const body = `## Load Test Results: ${scenario}
+
+            | Metric | Value | Threshold | Status |
+            |--------|-------|-----------|--------|
+            | p95 latency | ${p95}ms | <500ms | ${p95 < 500 ? '✅' : '❌'} |
+            | p99 latency | ${p99}ms | <2000ms | ${p99 < 2000 ? '✅' : '❌'} |
+            | Error rate | ${(errorRate * 100).toFixed(2)}% | <1% | ${errorRate < 0.01 ? '✅' : '❌'} |
+
+            [View detailed results](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            `;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+      - name: Fail if thresholds exceeded
+        if: steps.parse_results.outputs.P95 > 500 || steps.parse_results.outputs.ERROR_RATE > 0.01
+        run: |
+          echo "Performance thresholds exceeded!"
+          echo "p95: ${{ steps.parse_results.outputs.P95 }}ms (threshold: 500ms)"
+          echo "Error rate: ${{ steps.parse_results.outputs.ERROR_RATE }} (threshold: 0.01)"
+          exit 1
+
+  aggregate-results:
+    name: Aggregate Test Results
+    runs-on: ubuntu-latest
+    needs: load-test
+    if: always()
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: test-results
+
+      - name: Aggregate results
+        run: |
+          echo "# Load Test Summary" > summary.md
+          echo "" >> summary.md
+          echo "## Test Run Information" >> summary.md
+          echo "- Date: $(date)" >> summary.md
+          echo "- Environment: ${{ steps.setup.outputs.ENVIRONMENT }}" >> summary.md
+          echo "- Triggered by: ${{ github.event_name }}" >> summary.md
+          echo "" >> summary.md
+
+          # Process each scenario's results
+          for dir in test-results/k6-results-*/; do
+            scenario=$(basename "$dir" | sed 's/k6-results-//')
+            echo "## Scenario: $scenario" >> summary.md
+
+            if [ -f "$dir/summary.json" ]; then
+              cat "$dir/summary.json" | jq -r '
+                "| Metric | Value |",
+                "|--------|-------|",
+                "| p95 latency | \(.metrics.http_req_duration.values["p(95)"])ms |",
+                "| p99 latency | \(.metrics.http_req_duration.values["p(99)"])ms |",
+                "| Error rate | \((.metrics.http_req_failed.values.rate * 100) | tostring)% |",
+                "| Total requests | \(.metrics.http_reqs.values.count) |"
+              ' >> summary.md
+            fi
+
+            echo "" >> summary.md
+          done
+
+      - name: Upload summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-summary
+          path: summary.md
+          retention-days: 90
+
+  notify:
+    name: Send Notifications
+    runs-on: ubuntu-latest
+    needs: [load-test, aggregate-results]
+    if: always() && github.event_name == 'schedule'
+
+    steps:
+      - name: Send Slack notification
+        if: env.SLACK_WEBHOOK_URL != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          STATUS="${{ needs.load-test.result }}"
+          COLOR="good"
+          if [ "$STATUS" != "success" ]; then
+            COLOR="danger"
+          fi
+
+          curl -X POST $SLACK_WEBHOOK_URL \
+            -H 'Content-Type: application/json' \
+            -d '{
+              "attachments": [{
+                "color": "'"$COLOR"'",
+                "title": "K6 Load Tests - '"$STATUS"'",
+                "text": "Environment: ${{ steps.setup.outputs.ENVIRONMENT }}",
+                "fields": [
+                  {
+                    "title": "Repository",
+                    "value": "${{ github.repository }}",
+                    "short": true
+                  },
+                  {
+                    "title": "Run",
+                    "value": "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Results>",
+                    "short": true
+                  }
+                ]
+              }]
+            }'

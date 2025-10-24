@@ -102,6 +102,7 @@ type ServerConfig struct {
 	AllowedHosts   []string
 	AllowedOrigins []string
 	InitialPrompt  string
+	DatabaseURL    string
 }
 
 // Validate allowed hosts don't contain whitespace, commas, schemes, or ports.
