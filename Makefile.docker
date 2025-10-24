@@ -1,0 +1,316 @@
+# ==============================================================================
+# Makefile for AgentAPI Multi-Tenant Docker Compose
+# ==============================================================================
+
+.PHONY: help build start stop restart logs status clean clean-all backup update \
+        db-shell redis-shell shell stats check-env create-dirs
+
+# Default target
+.DEFAULT_GOAL := help
+
+# Variables
+COMPOSE_FILE := docker-compose.multitenant.yml
+ENV_FILE := .env
+ENV_EXAMPLE := .env.docker
+
+# Colors
+BLUE := \033[0;34m
+GREEN := \033[0;32m
+YELLOW := \033[1;33m
+RED := \033[0;31m
+NC := \033[0m
+
+# ==============================================================================
+# Help
+# ==============================================================================
+
+help: ## Show this help message
+	@echo "$(BLUE)AgentAPI Multi-Tenant Docker Compose Management$(NC)"
+	@echo ""
+	@echo "$(GREEN)Available targets:$(NC)"
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  $(BLUE)%-15s$(NC) %s\n", $$1, $$2}'
+	@echo ""
+	@echo "$(YELLOW)Quick Start:$(NC)"
+	@echo "  1. make init          # First time setup"
+	@echo "  2. Edit .env file with your configuration"
+	@echo "  3. make start         # Start all services"
+	@echo "  4. make status        # Check service health"
+	@echo ""
+
+# ==============================================================================
+# Setup
+# ==============================================================================
+
+init: check-env create-dirs ## Initialize environment (first time setup)
+	@echo "$(GREEN)✓ Initialization complete$(NC)"
+	@echo "$(YELLOW)⚠ Please edit $(ENV_FILE) with your configuration before starting services$(NC)"
+
+check-env: ## Check if .env file exists
+	@if [ ! -f "$(ENV_FILE)" ]; then \
+		echo "$(YELLOW)⚠ .env file not found$(NC)"; \
+		if [ -f "$(ENV_EXAMPLE)" ]; then \
+			echo "$(BLUE)ℹ Copying $(ENV_EXAMPLE) to $(ENV_FILE)$(NC)"; \
+			cp "$(ENV_EXAMPLE)" "$(ENV_FILE)"; \
+			echo "$(GREEN)✓ .env file created$(NC)"; \
+		else \
+			echo "$(RED)✗ Neither $(ENV_FILE) nor $(ENV_EXAMPLE) found!$(NC)"; \
+			exit 1; \
+		fi \
+	else \
+		echo "$(GREEN)✓ .env file exists$(NC)"; \
+	fi
+
+create-dirs: ## Create required directories
+	@echo "$(BLUE)ℹ Creating required directories...$(NC)"
+	@mkdir -p data/workspaces data/postgres data/redis logs/nginx backups
+	@echo "$(GREEN)✓ Directories created$(NC)"
+
+# ==============================================================================
+# Service Management
+# ==============================================================================
+
+build: check-env ## Build all services
+	@echo "$(BLUE)ℹ Building services...$(NC)"
+	@docker-compose -f $(COMPOSE_FILE) build
+	@echo "$(GREEN)✓ Build complete$(NC)"
+
+build-no-cache: check-env ## Build services without cache
+	@echo "$(BLUE)ℹ Building services (no cache)...$(NC)"
+	@docker-compose -f $(COMPOSE_FILE) build --no-cache
+	@echo "$(GREEN)✓ Build complete$(NC)"
+
+start: check-env create-dirs ## Start all services
+	@echo "$(BLUE)ℹ Starting services...$(NC)"
+	@docker-compose -f $(COMPOSE_FILE) up -d
+	@echo "$(GREEN)✓ Services started$(NC)"
+	@sleep 3
+	@$(MAKE) status
+
+start-build: check-env create-dirs ## Build and start all services
+	@echo "$(BLUE)ℹ Building and starting services...$(NC)"
+	@docker-compose -f $(COMPOSE_FILE) up -d --build
+	@echo "$(GREEN)✓ Services started$(NC)"
+	@sleep 3
+	@$(MAKE) status
+
+stop: ## Stop all services
+	@echo "$(BLUE)ℹ Stopping services...$(NC)"
+	@docker-compose -f $(COMPOSE_FILE) stop
+	@echo "$(GREEN)✓ Services stopped$(NC)"
+
+restart: ## Restart all services
+	@echo "$(BLUE)ℹ Restarting services...$(NC)"
+	@docker-compose -f $(COMPOSE_FILE) restart
+	@echo "$(GREEN)✓ Services restarted$(NC)"
+	@sleep 3
+	@$(MAKE) status
+
+restart-agentapi: ## Restart only AgentAPI service
+	@echo "$(BLUE)ℹ Restarting AgentAPI...$(NC)"
+	@docker-compose -f $(COMPOSE_FILE) restart agentapi
+	@echo "$(GREEN)✓ AgentAPI restarted$(NC)"
+
+# ==============================================================================
+# Monitoring
+# ==============================================================================
+
+logs: ## Show logs for all services
+	@docker-compose -f $(COMPOSE_FILE) logs -f
+
+logs-agentapi: ## Show logs for AgentAPI
+	@docker-compose -f $(COMPOSE_FILE) logs -f agentapi
+
+logs-postgres: ## Show logs for PostgreSQL
+	@docker-compose -f $(COMPOSE_FILE) logs -f postgres
+
+logs-redis: ## Show logs for Redis
+	@docker-compose -f $(COMPOSE_FILE) logs -f redis
+
+status: ## Show service status
+	@echo "$(BLUE)Service Status:$(NC)"
+	@docker-compose -f $(COMPOSE_FILE) ps
+	@echo ""
+	@echo "$(BLUE)Health Checks:$(NC)"
+	@if command -v curl > /dev/null 2>&1; then \
+		if curl -s http://localhost:3284/status > /dev/null 2>&1; then \
+			echo "$(GREEN)✓ AgentAPI (http://localhost:3284/status)$(NC)"; \
+		else \
+			echo "$(RED)✗ AgentAPI is not responding$(NC)"; \
+		fi; \
+		if curl -s http://localhost:8000/health > /dev/null 2>&1; then \
+			echo "$(GREEN)✓ FastMCP (http://localhost:8000/health)$(NC)"; \
+		else \
+			echo "$(YELLOW)⚠ FastMCP is not responding$(NC)"; \
+		fi; \
+	else \
+		echo "$(YELLOW)⚠ curl not installed - skipping health checks$(NC)"; \
+	fi
+
+stats: ## Show resource usage
+	@docker stats --no-stream $$(docker-compose -f $(COMPOSE_FILE) ps -q)
+
+top: ## Show top processes in containers
+	@docker-compose -f $(COMPOSE_FILE) top
+
+# ==============================================================================
+# Service Shells
+# ==============================================================================
+
+shell: ## Open shell in AgentAPI container
+	@docker-compose -f $(COMPOSE_FILE) exec agentapi sh
+
+db-shell: ## Open PostgreSQL shell
+	@docker-compose -f $(COMPOSE_FILE) exec postgres psql -U agentapi -d agentapi
+
+redis-shell: ## Open Redis CLI
+	@docker-compose -f $(COMPOSE_FILE) exec redis redis-cli
+
+# ==============================================================================
+# Database Management
+# ==============================================================================
+
+db-backup: ## Backup PostgreSQL database
+	@echo "$(BLUE)ℹ Backing up database...$(NC)"
+	@mkdir -p backups
+	@docker-compose -f $(COMPOSE_FILE) exec -T postgres \
+		pg_dump -U agentapi agentapi | gzip > backups/postgres-$$(date +%Y%m%d_%H%M%S).sql.gz
+	@echo "$(GREEN)✓ Database backed up to backups/$(NC)"
+
+db-restore: ## Restore PostgreSQL database (set BACKUP_FILE variable)
+	@if [ -z "$(BACKUP_FILE)" ]; then \
+		echo "$(RED)✗ Please specify BACKUP_FILE=path/to/backup.sql.gz$(NC)"; \
+		exit 1; \
+	fi
+	@echo "$(YELLOW)⚠ This will overwrite the current database!$(NC)"
+	@echo "Press Ctrl+C to cancel or Enter to continue..."; read
+	@echo "$(BLUE)ℹ Restoring database...$(NC)"
+	@gunzip < $(BACKUP_FILE) | docker-compose -f $(COMPOSE_FILE) exec -T postgres \
+		psql -U agentapi agentapi
+	@echo "$(GREEN)✓ Database restored$(NC)"
+
+db-migrate: ## Run database migrations
+	@echo "$(BLUE)ℹ Running database migrations...$(NC)"
+	@docker-compose -f $(COMPOSE_FILE) exec agentapi \
+		sh -c 'cd /app/database && psql $$DATABASE_URL -f schema.sql'
+	@echo "$(GREEN)✓ Migrations complete$(NC)"
+
+db-vacuum: ## Vacuum and analyze database
+	@echo "$(BLUE)ℹ Vacuuming database...$(NC)"
+	@docker-compose -f $(COMPOSE_FILE) exec postgres \
+		psql -U agentapi -d agentapi -c "VACUUM ANALYZE;"
+	@echo "$(GREEN)✓ Vacuum complete$(NC)"
+
+# ==============================================================================
+# Backup & Restore
+# ==============================================================================
+
+backup: ## Create full backup (database, workspaces, redis)
+	@echo "$(BLUE)ℹ Creating full backup...$(NC)"
+	@mkdir -p backups/$$(date +%Y%m%d_%H%M%S)
+	@$(MAKE) db-backup
+	@echo "$(BLUE)ℹ Backing up workspaces...$(NC)"
+	@tar -czf backups/$$(date +%Y%m%d_%H%M%S)/workspaces.tar.gz data/workspaces/ 2>/dev/null || true
+	@echo "$(BLUE)ℹ Backing up Redis...$(NC)"
+	@cp data/redis/dump.rdb backups/$$(date +%Y%m%d_%H%M%S)/redis.rdb 2>/dev/null || true
+	@echo "$(GREEN)✓ Full backup complete$(NC)"
+
+# ==============================================================================
+# Cleanup
+# ==============================================================================
+
+clean: ## Stop and remove containers/networks
+	@echo "$(YELLOW)⚠ Stopping and removing containers...$(NC)"
+	@docker-compose -f $(COMPOSE_FILE) down
+	@echo "$(GREEN)✓ Cleanup complete$(NC)"
+
+clean-all: ## Remove everything including volumes (DESTRUCTIVE!)
+	@echo "$(RED)✗ WARNING: This will delete ALL data including volumes!$(NC)"
+	@echo "Press Ctrl+C to cancel or type 'yes' to continue: "; read confirm; \
+	if [ "$$confirm" = "yes" ]; then \
+		docker-compose -f $(COMPOSE_FILE) down -v; \
+		rm -rf data/workspaces data/postgres data/redis logs/nginx; \
+		echo "$(GREEN)✓ Deep clean complete$(NC)"; \
+	else \
+		echo "$(BLUE)ℹ Cleanup cancelled$(NC)"; \
+	fi
+
+clean-logs: ## Clean up log files
+	@echo "$(BLUE)ℹ Cleaning log files...$(NC)"
+	@rm -rf logs/nginx/*
+	@docker-compose -f $(COMPOSE_FILE) restart
+	@echo "$(GREEN)✓ Logs cleaned$(NC)"
+
+# ==============================================================================
+# Update & Maintenance
+# ==============================================================================
+
+update: ## Update and restart services
+	@echo "$(BLUE)ℹ Updating services...$(NC)"
+	@docker-compose -f $(COMPOSE_FILE) pull
+	@docker-compose -f $(COMPOSE_FILE) build --pull
+	@docker-compose -f $(COMPOSE_FILE) up -d
+	@echo "$(GREEN)✓ Update complete$(NC)"
+
+prune: ## Remove unused Docker resources
+	@echo "$(BLUE)ℹ Pruning Docker resources...$(NC)"
+	@docker system prune -f
+	@echo "$(GREEN)✓ Prune complete$(NC)"
+
+prune-all: ## Remove all unused Docker resources including volumes
+	@echo "$(YELLOW)⚠ This will remove all unused Docker resources!$(NC)"
+	@docker system prune -af --volumes
+	@echo "$(GREEN)✓ Deep prune complete$(NC)"
+
+# ==============================================================================
+# Development
+# ==============================================================================
+
+dev: ## Start in development mode with live logs
+	@$(MAKE) start-build
+	@$(MAKE) logs
+
+dev-restart: ## Quick restart for development
+	@docker-compose -f $(COMPOSE_FILE) restart agentapi
+	@$(MAKE) logs-agentapi
+
+# ==============================================================================
+# Testing
+# ==============================================================================
+
+test: ## Run health checks
+	@echo "$(BLUE)Testing endpoints...$(NC)"
+	@curl -f http://localhost:3284/status || echo "$(RED)AgentAPI health check failed$(NC)"
+	@curl -f http://localhost:8000/health || echo "$(RED)FastMCP health check failed$(NC)"
+	@echo "$(GREEN)✓ Tests complete$(NC)"
+
+# ==============================================================================
+# Documentation
+# ==============================================================================
+
+docs: ## Open documentation
+	@if command -v open > /dev/null 2>&1; then \
+		open DOCKER_COMPOSE_README.md; \
+	elif command -v xdg-open > /dev/null 2>&1; then \
+		xdg-open DOCKER_COMPOSE_README.md; \
+	else \
+		cat DOCKER_COMPOSE_README.md; \
+	fi
+
+# ==============================================================================
+# Info
+# ==============================================================================
+
+info: ## Show configuration info
+	@echo "$(BLUE)Configuration:$(NC)"
+	@echo "  Compose File: $(COMPOSE_FILE)"
+	@echo "  Env File: $(ENV_FILE)"
+	@echo ""
+	@echo "$(BLUE)Services:$(NC)"
+	@docker-compose -f $(COMPOSE_FILE) config --services
+	@echo ""
+	@echo "$(BLUE)Volumes:$(NC)"
+	@docker volume ls --filter label=com.agentapi.volume
+	@echo ""
+	@echo "$(BLUE)Networks:$(NC)"
+	@docker network ls --filter label=com.agentapi.network

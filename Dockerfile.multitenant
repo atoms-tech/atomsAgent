@@ -1,80 +1,226 @@
-# Multi-tenant AgentAPI Dockerfile
-FROM golang:1.21-alpine AS builder
+# ==============================================================================
+# Multi-Tenant AgentAPI Dockerfile
+# Production-ready multi-stage build with Go, Node.js, and Python
+# ==============================================================================
+
+# ==============================================================================
+# Stage 1: Go Builder
+# ==============================================================================
+FROM golang:1.21-alpine AS go-builder
 
 # Install build dependencies
-RUN apk add --no-cache git ca-certificates tzdata
+RUN apk add --no-cache \
+    git \
+    ca-certificates \
+    tzdata \
+    make
 
-WORKDIR /app
+WORKDIR /build
 
-# Copy go mod files
+# Copy Go module files
 COPY go.mod go.sum ./
-RUN go mod download
+RUN go mod download && go mod verify
 
 # Copy source code
 COPY . .
 
-# Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o agentapi main.go
+# Build agentapi binary with optimizations
+# - Strip debug symbols (-s)
+# - Omit symbol table (-w)
+# - Static binary (CGO_ENABLED=0)
+# - Trim paths for reproducible builds
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build \
+    -a \
+    -installsuffix cgo \
+    -ldflags="-s -w -X main.version=$(git describe --tags --always --dirty 2>/dev/null || echo 'dev') -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    -trimpath \
+    -o agentapi \
+    main.go
 
-# Build chat UI
-FROM node:18-alpine AS chat-builder
-WORKDIR /app/chat
-COPY chat/ .
-RUN npm install && npm run build
+# Verify binary
+RUN chmod +x agentapi && \
+    ./agentapi --version || echo "Binary built successfully"
 
-# Python dependencies stage
+# ==============================================================================
+# Stage 2: Node.js Builder (Chat UI)
+# ==============================================================================
+FROM node:20-alpine AS node-builder
+
+# Install build dependencies
+RUN apk add --no-cache \
+    git
+
+WORKDIR /build/chat
+
+# Copy package files
+COPY chat/package.json chat/pnpm-lock.yaml* chat/package-lock.json* ./
+
+# Install dependencies (try pnpm first, fallback to npm)
+RUN if [ -f pnpm-lock.yaml ]; then \
+        npm install -g pnpm && pnpm install --frozen-lockfile; \
+    else \
+        npm ci --prefer-offline --no-audit; \
+    fi
+
+# Copy chat UI source
+COPY chat/ ./
+
+# Build Next.js chat UI for production
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV GITHUB_PAGES=true
+
+RUN if [ -f pnpm-lock.yaml ]; then \
+        pnpm run build; \
+    else \
+        npm run build; \
+    fi
+
+# Verify build output
+RUN ls -la out/ && echo "Chat UI build complete"
+
+# ==============================================================================
+# Stage 3: Python Dependencies
+# ==============================================================================
 FROM python:3.11-slim AS python-deps
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
 
-# Final stage
-FROM python:3.11-slim
+WORKDIR /build
 
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y \
-    ca-certificates \
-    tzdata \
-    nodejs \
-    npm \
-    curl \
+# Install system dependencies for Python packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install agent CLIs
-RUN npm install -g @musistudio/claude-code-router
-RUN npm install -g @factory-ai/droid
+# Copy requirements files
+COPY requirements.txt ./
+COPY lib/mcp/requirements.txt ./lib-mcp-requirements.txt
 
-# Copy Python dependencies
-COPY --from=python-deps /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
-COPY --from=python-deps /usr/local/bin /usr/local/bin
+# Install Python dependencies
+# Use --no-cache-dir to reduce image size
+# Install to specific prefix for easier copying
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt && \
+    pip install --no-cache-dir --prefix=/install -r lib-mcp-requirements.txt
 
-# Create non-root user
-RUN addgroup -g 1001 -S agentapi && \
-    adduser -u 1001 -S agentapi -G agentapi
+# Verify FastMCP installation
+RUN python3 -c "from fastmcp import FastMCPClient; print('FastMCP installed successfully')"
 
-# Create workspace directory
-RUN mkdir -p /workspaces && chown -R agentapi:agentapi /workspaces
+# ==============================================================================
+# Stage 4: Final Production Image
+# ==============================================================================
+FROM python:3.11-slim
 
-# Copy binary and assets
-COPY --from=builder /app/agentapi /usr/local/bin/
-COPY --from=chat-builder /app/chat/out /usr/local/share/agentapi/chat
+LABEL maintainer="AgentAPI Team"
+LABEL description="Multi-tenant AgentAPI with FastMCP 2.0 support"
+LABEL version="2.0.0"
 
-# Copy Python MCP wrapper
-COPY lib/mcp/fastmcp_wrapper.py /usr/local/bin/
-RUN chmod +x /usr/local/bin/fastmcp_wrapper.py
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    git \
+    curl \
+    nodejs \
+    npm \
+    supervisor \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Python packages from python-deps stage
+COPY --from=python-deps /install /usr/local
+
+# Install agent CLIs globally
+RUN npm install -g @musistudio/claude-code-router@latest && \
+    npm cache clean --force
+
+# Verify ccr installation
+RUN ccr --version || echo "CCR installed"
+
+# Create non-root user and group
+RUN groupadd -r -g 1001 agentapi && \
+    useradd -r -u 1001 -g agentapi -m -d /home/agentapi -s /bin/bash agentapi
+
+# Create application directories
+RUN mkdir -p \
+    /app \
+    /workspaces \
+    /usr/local/share/agentapi/chat \
+    /var/log/agentapi \
+    /var/run/agentapi
+
+# Set permissions for workspaces (world-writable with sticky bit)
+RUN chmod 1777 /workspaces
+
+# Set ownership for application directories
+RUN chown -R agentapi:agentapi \
+    /app \
+    /var/log/agentapi \
+    /var/run/agentapi \
+    /home/agentapi
+
+# Copy Go binary
+COPY --from=go-builder --chown=agentapi:agentapi /build/agentapi /usr/local/bin/agentapi
+
+# Copy Chat UI build output
+COPY --from=node-builder --chown=agentapi:agentapi /build/chat/out /usr/local/share/agentapi/chat
+
+# Copy FastMCP service files
+COPY --chown=agentapi:agentapi lib/mcp/fastmcp_service.py /usr/local/bin/fastmcp_service.py
+COPY --chown=agentapi:agentapi lib/mcp/fastmcp_wrapper.py /usr/local/bin/fastmcp_wrapper.py
+COPY --chown=agentapi:agentapi lib/mcp/start.sh /usr/local/bin/fastmcp_start.sh
+
+# Make Python scripts and startup script executable
+RUN chmod +x \
+    /usr/local/bin/agentapi \
+    /usr/local/bin/fastmcp_service.py \
+    /usr/local/bin/fastmcp_wrapper.py \
+    /usr/local/bin/fastmcp_start.sh
+
+# Create supervisord configuration for managing both services
+RUN echo '[supervisord]' > /etc/supervisor/conf.d/agentapi.conf && \
+    echo 'nodaemon=true' >> /etc/supervisor/conf.d/agentapi.conf && \
+    echo 'user=agentapi' >> /etc/supervisor/conf.d/agentapi.conf && \
+    echo 'logfile=/var/log/agentapi/supervisord.log' >> /etc/supervisor/conf.d/agentapi.conf && \
+    echo 'pidfile=/var/run/agentapi/supervisord.pid' >> /etc/supervisor/conf.d/agentapi.conf && \
+    echo '' >> /etc/supervisor/conf.d/agentapi.conf && \
+    echo '[program:agentapi]' >> /etc/supervisor/conf.d/agentapi.conf && \
+    echo 'command=/usr/local/bin/agentapi server --port=%(ENV_AGENTAPI_PORT)s' >> /etc/supervisor/conf.d/agentapi.conf && \
+    echo 'directory=/app' >> /etc/supervisor/conf.d/agentapi.conf && \
+    echo 'user=agentapi' >> /etc/supervisor/conf.d/agentapi.conf && \
+    echo 'autostart=true' >> /etc/supervisor/conf.d/agentapi.conf && \
+    echo 'autorestart=true' >> /etc/supervisor/conf.d/agentapi.conf && \
+    echo 'stdout_logfile=/var/log/agentapi/agentapi.log' >> /etc/supervisor/conf.d/agentapi.conf && \
+    echo 'stderr_logfile=/var/log/agentapi/agentapi_error.log' >> /etc/supervisor/conf.d/agentapi.conf && \
+    echo 'environment=HOME="/home/agentapi"' >> /etc/supervisor/conf.d/agentapi.conf && \
+    echo '' >> /etc/supervisor/conf.d/agentapi.conf && \
+    echo '[program:fastmcp]' >> /etc/supervisor/conf.d/agentapi.conf && \
+    echo 'command=/usr/local/bin/fastmcp_service.py --host=0.0.0.0 --port=%(ENV_FASTMCP_PORT)s' >> /etc/supervisor/conf.d/agentapi.conf && \
+    echo 'directory=/app' >> /etc/supervisor/conf.d/agentapi.conf && \
+    echo 'user=agentapi' >> /etc/supervisor/conf.d/agentapi.conf && \
+    echo 'autostart=true' >> /etc/supervisor/conf.d/agentapi.conf && \
+    echo 'autorestart=true' >> /etc/supervisor/conf.d/agentapi.conf && \
+    echo 'stdout_logfile=/var/log/agentapi/fastmcp.log' >> /etc/supervisor/conf.d/agentapi.conf && \
+    echo 'stderr_logfile=/var/log/agentapi/fastmcp_error.log' >> /etc/supervisor/conf.d/agentapi.conf && \
+    echo 'environment=HOME="/home/agentapi",PYTHONUNBUFFERED="1"' >> /etc/supervisor/conf.d/agentapi.conf
 
 # Set working directory
-WORKDIR /workspaces
+WORKDIR /app
 
-# Switch to non-root user
-USER agentapi
+# Environment variables
+ENV AGENTAPI_PORT=3284
+ENV FASTMCP_PORT=8000
+ENV FASTMCP_WORKERS=4
+ENV PYTHONUNBUFFERED=1
+ENV PATH="/home/agentapi/.local/bin:$PATH"
 
-# Expose port
-EXPOSE 3284
+# Expose ports
+EXPOSE 3284 8000
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3284/status || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:${AGENTAPI_PORT}/health || exit 1
 
-# Default command
-CMD ["agentapi", "server", "--port=3284"]
+# Security: Run as non-root user
+USER agentapi
+
+# Startup command using supervisord to manage both services
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/agentapi.conf"]

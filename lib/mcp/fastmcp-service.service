@@ -1,0 +1,40 @@
+# SystemD service file for FastMCP Service
+# Copy to /etc/systemd/system/fastmcp-service.service
+
+[Unit]
+Description=FastMCP Service - MCP Client Management API
+After=network.target
+Documentation=https://github.com/yourusername/agentapi
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/agentapi/lib/mcp
+Environment="PATH=/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+
+# Command to run
+ExecStart=/usr/bin/python3 /opt/agentapi/lib/mcp/fastmcp_service.py --port 8080
+
+# Restart policy
+Restart=on-failure
+RestartSec=10
+
+# Resource limits
+LimitNOFILE=65536
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=fastmcp-service
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/agentapi/lib/mcp
+
+[Install]
+WantedBy=multi-user.target

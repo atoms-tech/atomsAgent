@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  fastmcp-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fastmcp-service
+    ports:
+      - "8080:8080"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8080
+    volumes:
+      # Mount logs directory for persistence
+      - ./logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - fastmcp-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+networks:
+  fastmcp-network:
+    driver: bridge
+
+volumes:
+  logs:

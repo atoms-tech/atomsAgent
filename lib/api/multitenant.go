@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/coder/agentapi/lib/auth"
 	"github.com/coder/agentapi/lib/msgfmt"
 	"github.com/coder/agentapi/lib/session"
 	"github.com/coder/agentapi/lib/mcp"
@@ -234,13 +236,19 @@ func (al *AuditLogger) Log(ctx context.Context, userID, orgID, action, resourceT
 
 // Helper functions for extracting context from requests
 func getUserIDFromContext(ctx context.Context) string {
-	// TODO: Extract from JWT token or session
-	return "user-123" // Placeholder
+	userID, _, err := auth.GetUserFromContext(ctx)
+	if err != nil {
+		return ""
+	}
+	return userID
 }
 
 func getOrgIDFromContext(ctx context.Context) string {
-	// TODO: Extract from JWT token or session
-	return "org-456" // Placeholder
+	_, orgID, err := auth.GetUserFromContext(ctx)
+	if err != nil {
+		return ""
+	}
+	return orgID
 }
 
 func getSessionIDFromPath(path string) string {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 )
 
 // Tool represents an MCP tool
@@ -28,6 +27,17 @@ type Prompt struct {
 	Name        string                 `json:"name"`
 	Description string                 `json:"description"`
 	Arguments   map[string]any         `json:"arguments,omitempty"`
+}
+
+// MCPConfig represents the configuration for connecting to an MCP server
+type MCPConfig struct {
+	ID       string            `json:"id"`
+	Name     string            `json:"name"`
+	Type     string            `json:"type"` // http, sse, stdio
+	Endpoint string            `json:"endpoint"`
+	AuthType string            `json:"auth_type,omitempty"`
+	Config   map[string]any    `json:"config,omitempty"`
+	Auth     map[string]string `json:"auth,omitempty"`
 }
 
 // Client represents an MCP client wrapper using FastMCP
