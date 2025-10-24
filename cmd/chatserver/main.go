@@ -43,6 +43,8 @@ func main() {
 
 	// 3. Load configuration with defaults
 	databaseURL := os.Getenv("DATABASE_URL")
+	supabaseURL := os.Getenv("SUPABASE_URL")
+	supabaseServiceRoleKey := os.Getenv("SUPABASE_SERVICE_ROLE_KEY")
 	ccRouterPath := getEnvOrDefault("CCROUTER_PATH", "/usr/local/bin/ccrouter")
 	droidPath := getEnvOrDefault("DROID_PATH", "/usr/local/bin/droid")
 	primaryAgent := getEnvOrDefault("PRIMARY_AGENT", "ccrouter")
@@ -51,6 +53,7 @@ func main() {
 	logger.Info("configuration loaded",
 		"authkit_jwks_url", authKitJWKSURL,
 		"database_url", databaseURL != "",
+		"supabase_url", supabaseURL != "",
 		"ccrouter_path", ccRouterPath,
 		"droid_path", droidPath,
 		"primary_agent", primaryAgent,
@@ -91,17 +94,19 @@ func main() {
 
 	// 7. Create server configuration
 	config := &server.Config{
-		AuthKitJWKSURL:  authKitJWKSURL,
-		DatabaseURL:     databaseURL,
-		CCRouterPath:    ccRouterPath,
-		DroidPath:       droidPath,
-		PrimaryAgent:    primaryAgent,
-		FallbackEnabled: fallbackEnabled,
-		AgentTimeout:    30 * time.Second,
-		MaxTokens:       4000,
-		DefaultTemp:     0.7,
-		MetricsEnabled:  metricsEnabled,
-		AuditEnabled:    auditEnabled,
+		AuthKitJWKSURL:         authKitJWKSURL,
+		DatabaseURL:            databaseURL,
+		SupabaseURL:            supabaseURL,
+		SupabaseServiceRoleKey: supabaseServiceRoleKey,
+		CCRouterPath:           ccRouterPath,
+		DroidPath:              droidPath,
+		PrimaryAgent:           primaryAgent,
+		FallbackEnabled:        fallbackEnabled,
+		AgentTimeout:           30 * time.Second,
+		MaxTokens:              4000,
+		DefaultTemp:            0.7,
+		MetricsEnabled:         metricsEnabled,
+		AuditEnabled:           auditEnabled,
 	}
 
 	// 8. Create HTTP router

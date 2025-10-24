@@ -2,6 +2,10 @@
 # AgentAPI Startup Script
 # Loads environment from .env and starts the chatserver
 
+# Clear any previous DATABASE_URL to avoid IPv6 connection issues
+# We use Supabase client which handles connections properly
+unset DATABASE_URL
+
 set -a
 source .env
 set +a
