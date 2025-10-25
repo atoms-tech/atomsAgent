@@ -108,4 +108,7 @@ func SetupChatAPI(
 // RegisterChatAPI registers all chat API routes
 func RegisterChatAPI(router *http.ServeMux, logger *slog.Logger, chatHandler *chat.ChatHandler, authKitMiddleware *middleware.TieredAccessMiddleware) {
 	ChatRouter(router, logger, chatHandler, authKitMiddleware)
+
+	// Note: API Key routes are registered separately from pkg/server/setup.go
+	// because they require database access which is set up there
 }

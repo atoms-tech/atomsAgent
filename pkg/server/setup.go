@@ -419,12 +419,18 @@ func SetupChatAPI(router *http.ServeMux, logger *slog.Logger, config *Config) (*
 		),
 	)
 
+	// API Key management routes
+	logger.Info("registering API key management routes")
+	v1.RegisterAPIKeyRoutes(router, logger, components.DB, components.TieredAccessMiddleware)
+
 	// Health check endpoint is registered in main.go
 
 	logger.Info("chat API setup complete",
 		"endpoints", []string{
 			"/v1/chat/completions",
 			"/v1/models",
+			"/api/v1/api-keys (GET, POST, DELETE)",
+			"/api/v1/api-keys/{id}/revoke (POST)",
 			"/health",
 		},
 		"available_agents", agentsInitialized,
