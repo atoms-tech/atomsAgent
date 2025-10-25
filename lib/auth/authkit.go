@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"math/big"
 	"net/http"
@@ -413,27 +414,64 @@ func (av *AuthKitValidator) ensureSupabaseKeysLoaded(ctx context.Context) error 
 	}
 	av.mu.RUnlock()
 
-	// Load JWKS from Supabase
-	req, err := http.NewRequestWithContext(ctx, "GET", av.supabaseJWKSURL, nil)
-	if err != nil {
-		return err
+	// Load JWKS from Supabase with retry logic
+	var lastErr error
+	maxRetries := 3
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			// Exponential backoff: 100ms, 200ms, etc.
+			backoff := time.Duration(100*(attempt)) * time.Millisecond
+			select {
+			case <-time.After(backoff):
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "GET", av.supabaseJWKSURL, nil)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		defer resp.Body.Close()
+
+		// Retry on 5xx errors, but not on 4xx errors
+		if resp.StatusCode >= 500 {
+			lastErr = fmt.Errorf("Supabase JWKS endpoint returned status %d (attempt %d/%d)", resp.StatusCode, attempt+1, maxRetries)
+			av.logger.Debug("Supabase JWKS fetch failed, will retry", "attempt", attempt+1, "status", resp.StatusCode)
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("Supabase JWKS endpoint returned status %d", resp.StatusCode)
+		}
+
+		// Successfully got response, decode it
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("failed to read Supabase JWKS response: %w", err)
+		}
+
+		var jwksResp JWKSResponse
+		if err := json.Unmarshal(body, &jwksResp); err != nil {
+			return fmt.Errorf("failed to decode Supabase JWKS response: %w", err)
+		}
+
+		return av.processSupabaseKeys(&jwksResp)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
+	// All retries exhausted
+	return fmt.Errorf("failed to load Supabase JWKS after %d attempts: %w", maxRetries, lastErr)
+}
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("Supabase JWKS endpoint returned status %d", resp.StatusCode)
-	}
-
-	var jwksResp JWKSResponse
-	if err := json.NewDecoder(resp.Body).Decode(&jwksResp); err != nil {
-		return fmt.Errorf("failed to decode Supabase JWKS response: %w", err)
-	}
-
+// processSupabaseKeys converts JWKS keys and stores them in cache
+func (av *AuthKitValidator) processSupabaseKeys(jwksResp *JWKSResponse) error {
 	// Convert JWKs to RSA public keys
 	keys := make(map[string]*rsa.PublicKey)
 	for _, key := range jwksResp.Keys {
