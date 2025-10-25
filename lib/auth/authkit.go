@@ -109,39 +109,24 @@ func NewAuthKitValidatorWithSupabase(logger *slog.Logger, jwksURL, supabaseJWKSU
 	}
 }
 
-// ValidateToken validates a JWT token (either WorkOS or Supabase) and returns user info
+// ValidateToken validates a JWT token using WorkOS/AuthKit and returns user info
+// NOTE: Supabase auth is no longer supported due to infrastructure unavailability.
+// All authentication now goes through WorkOS/AuthKit.
 func (av *AuthKitValidator) ValidateToken(ctx context.Context, tokenString string) (*AuthKitUser, error) {
-	// Parse JWT without verification first to get claims and identify issuer
+	// Parse JWT without verification first to get claims
 	unverifiedClaims := &AuthKitClaims{}
 	_, _, err := jwt.NewParser().ParseUnverified(tokenString, unverifiedClaims)
 	if err != nil {
 		return nil, fmt.Errorf("invalid token format: %w", err)
 	}
 
-	// Debug logging to see what issuer we got
-	av.logger.Debug("token inspection",
+	// Debug logging
+	av.logger.Debug("validating WorkOS token",
 		"issuer", unverifiedClaims.Iss,
 		"has_org", unverifiedClaims.Org != "",
-		"has_org_id", unverifiedClaims.OrgID != "",
 		"has_sub", unverifiedClaims.Sub != "")
 
-	// Determine token type based on structure
-	// WorkOS tokens ALWAYS have 'org' claim (workspace/organization ID)
-	// Supabase tokens have 'org_id' claim but NOT 'org' claim
-	// If token lacks 'org' claim, treat it as Supabase (try Supabase validation)
-	// This handles cases where issuer claim may be misleading
-	isSupabase := unverifiedClaims.Org == ""
-
-	if isSupabase {
-		// Validate as Supabase token
-		av.logger.Info("routing to supabase validator",
-			"reason", "missing 'org' claim (Supabase marker)",
-			"has_org_id", unverifiedClaims.OrgID != "")
-		return av.validateSupabaseToken(ctx, tokenString, unverifiedClaims)
-	}
-
-	// Validate as WorkOS token (has 'org' claim)
-	av.logger.Info("routing to workos validator", "has_org_claim", true)
+	// Validate as WorkOS token
 	return av.validateWorkOSToken(ctx, tokenString, unverifiedClaims)
 }
 
