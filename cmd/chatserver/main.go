@@ -12,15 +12,25 @@ import (
 	"time"
 
 	"github.com/coder/agentapi/pkg/server"
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	// 0. Load environment variables from .env file (if it exists)
+	// This is non-fatal - godotenv.Load returns error if file doesn't exist
+	// but that's OK, we can still use OS environment variables
+	if err := godotenv.Load(); err != nil {
+		// .env file doesn't exist or can't be loaded, which is OK
+		// We'll use environment variables from the shell
+	}
+
 	// 1. Initialize logger
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}))
 
 	logger.Info("Starting AgentAPI Chat Server")
+	logger.Info("environment loaded from .env file (if present) and shell variables")
 
 	// 2. Check for required environment variables
 	authKitJWKSURL := os.Getenv("AUTHKIT_JWKS_URL")
