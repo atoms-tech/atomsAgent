@@ -202,10 +202,14 @@ func SetupChatAPI(router *http.ServeMux, logger *slog.Logger, config *Config) (*
 		var testResult []map[string]interface{}
 		_, err = components.SupabaseClient.From("agents").Select("id", "", false).ExecuteTo(&testResult)
 		if err != nil {
-			return nil, fmt.Errorf("failed to connect to Supabase: %w", err)
+			// Log the error but don't block startup - RLS or permissions may need manual fixes
+			logger.Warn("Supabase table access test failed (RLS or permissions may need fixing)",
+				"error", err,
+				"note", "Server will start but database operations may fail until resolved",
+			)
+		} else {
+			logger.Info("Supabase connection established")
 		}
-
-		logger.Info("Supabase connection established")
 
 		// For components that still need sql.DB, create a connection pool
 		// This uses DATABASE_URL as fallback or builds from Supabase credentials
@@ -273,15 +277,21 @@ func SetupChatAPI(router *http.ServeMux, logger *slog.Logger, config *Config) (*
 		logger.Debug("initial JWKS key fetch completed", "error", err.Error())
 	}
 
-	// 2. Initialize audit logger
-	if config.AuditEnabled {
+	// 2. Initialize audit logger (if database is available)
+	if config.AuditEnabled && db != nil {
 		logger.Info("initializing audit logger")
 		components.AuditLogger, err = audit.NewAuditLogger(db, 1000)
 		if err != nil {
-			return nil, fmt.Errorf("failed to initialize audit logger: %w", err)
+			// Log but don't fail - audit logging is optional
+			logger.Warn("failed to initialize audit logger",
+				"error", err,
+				"note", "Audit logging will be disabled",
+			)
 		}
+	} else if !config.AuditEnabled {
+		logger.Info("audit logging disabled by configuration")
 	} else {
-		logger.Info("audit logging disabled")
+		logger.Warn("audit logging disabled - database connection not available")
 	}
 
 	// 3. Initialize metrics client
