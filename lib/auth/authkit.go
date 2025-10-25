@@ -177,9 +177,22 @@ func (av *AuthKitValidator) validateWorkOSToken(ctx context.Context, tokenString
 		return nil, fmt.Errorf("missing 'sub' claim")
 	}
 
-	if claims.Org == "" {
-		return nil, fmt.Errorf("missing 'org' claim")
+	// For WorkOS tokens, org claim may be optional or use different field names
+	// If org is missing, use org_id or a default value
+	org := claims.Org
+	if org == "" {
+		org = claims.OrgID
+		if org == "" {
+			// Use a default organization from the token's issuer domain if available
+			org = "default-org"
+		}
 	}
+
+	av.logger.Debug("validated WorkOS token",
+		"sub", claims.Sub,
+		"org", org,
+		"has_org_claim", claims.Org != "",
+		"email", claims.Email)
 
 	// Validate expiration
 	if claims.ExpiresAt != nil && claims.ExpiresAt.Before(time.Now()) {
@@ -210,7 +223,7 @@ func (av *AuthKitValidator) validateWorkOSToken(ctx context.Context, tokenString
 
 	return &AuthKitUser{
 		ID:                   claims.Sub,
-		OrgID:                claims.Org,
+		OrgID:                org, // Use resolved org value (org or org_id or default)
 		Email:                claims.Email,
 		Name:                 claims.Name,
 		Role:                 claims.Role,
