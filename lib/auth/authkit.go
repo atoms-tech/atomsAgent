@@ -117,13 +117,32 @@ func (av *AuthKitValidator) ValidateToken(ctx context.Context, tokenString strin
 		return nil, fmt.Errorf("invalid token format: %w", err)
 	}
 
-	// Determine token type based on issuer
-	if unverifiedClaims.Iss == "supabase" {
+	// Debug logging to see what issuer we got
+	av.logger.Debug("token inspection",
+		"issuer", unverifiedClaims.Iss,
+		"has_org", unverifiedClaims.Org != "",
+		"has_org_id", unverifiedClaims.OrgID != "",
+		"has_sub", unverifiedClaims.Sub != "")
+
+	// Determine token type based on issuer or structure
+	// Supabase tokens have: iss="supabase" or have org_id claim
+	// WorkOS tokens have: org claim
+	isSupabase := unverifiedClaims.Iss == "supabase" || (unverifiedClaims.OrgID != "" && unverifiedClaims.Org == "")
+
+	if isSupabase {
 		// Validate as Supabase token
+		av.logger.Info("routing to supabase validator",
+			"issuer", unverifiedClaims.Iss,
+			"reason", map[string]bool{
+				"iss_is_supabase": unverifiedClaims.Iss == "supabase",
+				"has_org_id":      unverifiedClaims.OrgID != "",
+				"no_org_claim":    unverifiedClaims.Org == "",
+			})
 		return av.validateSupabaseToken(ctx, tokenString, unverifiedClaims)
 	}
 
 	// Validate as WorkOS token (default)
+	av.logger.Info("routing to workos validator", "issuer", unverifiedClaims.Iss)
 	return av.validateWorkOSToken(ctx, tokenString, unverifiedClaims)
 }
 
