@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"os"
 )
 
 // APIKeyValidator validates API keys for service-to-service authentication
@@ -82,4 +83,34 @@ func (v *APIKeyValidator) ValidateAPIKey(ctx context.Context, apiKey string) (*A
 func hashAPIKey(apiKey string) string {
 	hash := sha256.Sum256([]byte(apiKey))
 	return fmt.Sprintf("%x", hash)
+}
+
+// ValidateStaticAPIKey validates a static API key configured via environment variable
+// This is useful for development and simple deployments where a single shared key is acceptable
+func (v *APIKeyValidator) ValidateStaticAPIKey(ctx context.Context, providedKey string) (*AuthKitUser, error) {
+	if providedKey == "" {
+		return nil, fmt.Errorf("missing API key")
+	}
+
+	// Get the static API key from environment
+	staticKey := os.Getenv("STATIC_API_KEY")
+	if staticKey == "" {
+		return nil, fmt.Errorf("static API key not configured")
+	}
+
+	// Compare provided key with static key
+	if providedKey != staticKey {
+		return nil, fmt.Errorf("invalid API key")
+	}
+
+	// Return a default authenticated user for static key
+	// In production, you might want to load user details from environment or database
+	return &AuthKitUser{
+		ID:                   os.Getenv("STATIC_API_USER_ID"),
+		OrgID:                os.Getenv("STATIC_API_ORG_ID"),
+		Email:                os.Getenv("STATIC_API_EMAIL"),
+		Name:                 os.Getenv("STATIC_API_NAME"),
+		IsPlatformAdminFlag:  true, // Static keys are considered admin keys
+		AuthenticationMethod: "static_api_key",
+	}, nil
 }

@@ -46,6 +46,7 @@ type AuthKitValidator struct {
 	supabaseKeyExpiry time.Time
 	keyRefreshTTL     time.Duration
 	db                *sql.DB // Database connection for platform admin checks
+	apiKeyValidator   *APIKeyValidator // For validating static and database API keys
 }
 
 // JWKSResponse from WorkOS
@@ -100,7 +101,7 @@ func NewAuthKitValidatorWithSupabase(logger *slog.Logger, jwksURL, supabaseJWKSU
 		}
 	}
 
-	return &AuthKitValidator{
+	validator := &AuthKitValidator{
 		logger:          logger,
 		jwksURL:         jwksURL,
 		supabaseJWKSURL: supabaseJWKSURL,
@@ -109,12 +110,47 @@ func NewAuthKitValidatorWithSupabase(logger *slog.Logger, jwksURL, supabaseJWKSU
 		keyRefreshTTL:   24 * time.Hour,
 		db:              db,
 	}
+
+	// Initialize API key validator for static and database-backed API key validation
+	validator.apiKeyValidator = NewAPIKeyValidator(logger, db)
+
+	return validator
 }
 
-// ValidateToken validates a JWT token using WorkOS/AuthKit and returns user info
+// ValidateToken validates authentication credentials and returns user info
+// This method supports multiple authentication methods in priority order:
+// 1. Static API key (from environment variable)
+// 2. Database-backed API key
+// 3. WorkOS/AuthKit JWT token
 // NOTE: Supabase auth is no longer supported due to infrastructure unavailability.
-// All authentication now goes through WorkOS/AuthKit.
 func (av *AuthKitValidator) ValidateToken(ctx context.Context, tokenString string) (*AuthKitUser, error) {
+	if tokenString == "" {
+		return nil, fmt.Errorf("empty token")
+	}
+
+	// Try static API key validation first
+	if av.apiKeyValidator != nil {
+		user, err := av.apiKeyValidator.ValidateStaticAPIKey(ctx, tokenString)
+		if err == nil {
+			av.logger.Debug("authenticated with static API key")
+			return user, nil
+		}
+		// Log but continue to try other methods
+		av.logger.Debug("static API key validation failed", "error", err.Error())
+	}
+
+	// Try database-backed API key validation
+	if av.apiKeyValidator != nil {
+		user, err := av.apiKeyValidator.ValidateAPIKey(ctx, tokenString)
+		if err == nil {
+			av.logger.Debug("authenticated with database API key")
+			return user, nil
+		}
+		// Log but continue to try JWT
+		av.logger.Debug("database API key validation failed", "error", err.Error())
+	}
+
+	// Finally, try JWT token validation
 	// Parse JWT without verification first to get claims
 	unverifiedClaims := &AuthKitClaims{}
 	_, _, err := jwt.NewParser().ParseUnverified(tokenString, unverifiedClaims)
