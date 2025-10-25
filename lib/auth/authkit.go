@@ -76,7 +76,9 @@ type AuthKitUser struct {
 	IsOrgAdminFlag      bool // true if Role == "admin" (from WorkOS)
 	IsPlatformAdminFlag bool // true if in platform_admins table (from DB)
 
-	Token string
+	// Authentication metadata
+	AuthenticationMethod string // "jwt", "api_key", "mtls"
+	Token                string
 }
 
 // NewAuthKitValidator creates a new AuthKit JWT validator
@@ -207,15 +209,16 @@ func (av *AuthKitValidator) validateWorkOSToken(ctx context.Context, tokenString
 	}
 
 	return &AuthKitUser{
-		ID:                  claims.Sub,
-		OrgID:               claims.Org,
-		Email:               claims.Email,
-		Name:                claims.Name,
-		Role:                claims.Role,
-		Permissions:         claims.Permissions,
-		IsOrgAdminFlag:      claims.Role == "admin",
-		IsPlatformAdminFlag: isPlatformAdmin,
-		Token:               tokenString,
+		ID:                   claims.Sub,
+		OrgID:                claims.Org,
+		Email:                claims.Email,
+		Name:                 claims.Name,
+		Role:                 claims.Role,
+		Permissions:          claims.Permissions,
+		IsOrgAdminFlag:       claims.Role == "admin",
+		IsPlatformAdminFlag:  isPlatformAdmin,
+		AuthenticationMethod: "jwt",
+		Token:                tokenString,
 	}, nil
 }
 
