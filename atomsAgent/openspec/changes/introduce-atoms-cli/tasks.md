@@ -1,0 +1,11 @@
+## Implementation Tasks
+- [x] Create Typer application module (e.g., `atomsAgent.cli.main`) with global options and command registration.
+- [x] Implement `supabase generate-models` command invoking existing codegen (with Rich progress, flags for schema path/output).
+- [x] Implement `vertex models` command querying Vertex cache/service and rendering Rich table with filters (`--provider`, `--json`).
+- [x] Implement `mcp list/create/update/delete` subcommands wiring into MCP service with flag inputs (org/user scope), presenting tabular output.
+- [x] Implement `prompt show` command summarising active prompts for given org/user/workflow.
+- [x] Implement `server run` command invoking Uvicorn with configurable host/port/reload.
+- [x] Add entry point in `pyproject.toml` (`[project.scripts] atoms-agent = atomsAgent.cli.main:app`) and ensure CLI dependencies declared.
+- [x] Add unit tests using `typer.testing.CliRunner` covering each command path and error handling.
+- [x] Update documentation (`README.md`) with CLI install/usage examples.
+- [x] run `ruff check` and `pytest` ensuring green build.

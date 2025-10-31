@@ -1,0 +1,20 @@
+Traceback (most recent call last):
+  File "/Users/kooshapari/miniforge3/bin/atoms-agent", line 3, in <module>
+    from atomsAgent.cli.main import app
+  File "/Users/kooshapari/temp-PRODVERCEL/485/kush/agentapi/atomsAgent/src/atomsAgent/__init__.py", line 3, in <module>
+    from .main import create_app
+  File "/Users/kooshapari/temp-PRODVERCEL/485/kush/agentapi/atomsAgent/src/atomsAgent/main.py", line 5, in <module>
+    from atomsAgent.api import register_routes
+  File "/Users/kooshapari/temp-PRODVERCEL/485/kush/agentapi/atomsAgent/src/atomsAgent/api/__init__.py", line 3, in <module>
+    from atomsAgent.api.routes import chat, mcp, openai, platform
+  File "/Users/kooshapari/temp-PRODVERCEL/485/kush/agentapi/atomsAgent/src/atomsAgent/api/routes/__init__.py", line 3, in <module>
+    from atomsAgent.api.routes import mcp, openai, platform
+  File "/Users/kooshapari/temp-PRODVERCEL/485/kush/agentapi/atomsAgent/src/atomsAgent/api/routes/mcp.py", line 5, in <module>
+    from atomsAgent.dependencies import get_mcp_service
+  File "/Users/kooshapari/temp-PRODVERCEL/485/kush/agentapi/atomsAgent/src/atomsAgent/dependencies.py", line 15, in <module>
+    from atomsAgent.services import (
+  File "/Users/kooshapari/temp-PRODVERCEL/485/kush/agentapi/atomsAgent/src/atomsAgent/services/__init__.py", line 4, in <module>
+    from atomsAgent.services.claude_client import (
+  File "/Users/kooshapari/temp-PRODVERCEL/485/kush/agentapi/atomsAgent/src/atomsAgent/services/claude_client.py", line 397
+    client = ClaudeSDKClient(options=options)
+IndentationError: unexpected indent

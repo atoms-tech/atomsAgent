@@ -1,9 +1,0 @@
-# Test artifacts
-coverage.out
-coverage.html
-*.test
-*.prof
-
-# Test data
-test-data/
-tmp/

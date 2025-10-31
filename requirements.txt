@@ -1,9 +1,0 @@
-# FastMCP Client Dependencies
-fastmcp>=2.0.0
-httpx>=0.24.0
-pydantic>=2.0.0
-asyncio-mqtt>=0.11.0
-
-# FastAPI Service Dependencies
-fastapi>=0.104.0
-uvicorn[standard]>=0.24.0

@@ -1,0 +1,51 @@
+# ==============================================================================
+# AgentAPI Configuration
+# ==============================================================================
+# This file contains non-sensitive configuration data
+# ==============================================================================
+
+# =======================
+# Application Settings
+# =======================
+app_version: "0.1.0"
+enable_docs: true
+cors_allow_origins: []
+
+# =======================
+# Vertex AI Settings
+# =======================
+vertex_project_id: "serious-mile-462615-a2"
+vertex_location: "global"
+
+# =======================
+# Model Settings
+# =======================
+model_cache_ttl_seconds: 600
+
+# =======================
+# Platform Settings
+# =======================
+platform_prompt_id: null
+platform_system_prompt: null
+workflow_prompt_map: {}
+
+# =======================
+# Sandbox Settings
+# =======================
+sandbox_root_dir: "/tmp/atomsAgent/sandboxes"
+
+# =======================
+# Tool Settings
+# =======================
+default_allowed_tools:
+  - "Read"
+  - "Write"
+  - "Edit"
+  - "Bash"
+  - "Skill"
+  - "atoms_status"
+  - "session_info"
+  - "workspace_search"
+
+default_setting_sources: []
+

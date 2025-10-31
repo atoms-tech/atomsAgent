@@ -1,0 +1,838 @@
+"""Final Unified Claude client with superset of all SDK capabilities."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+import tempfile
+import time
+import uuid
+from collections.abc import AsyncGenerator, Callable, Iterable
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+from tenacity import AsyncRetrying, retry_if_exception_type, stop_after_attempt, wait_fixed
+
+from atomsAgent.config import settings
+from atomsAgent.services.sandbox import SandboxContext, SandboxManager
+
+try:
+    from claude_agent_sdk import (
+        AssistantMessage,
+        ClaudeAgentOptions,
+        ClaudeSDKClient,
+        HookContext,
+        HookMatcher,
+        Message,
+        PermissionMode,
+        ResultMessage,
+        SdkMcpTool,
+        TextBlock,
+        create_sdk_mcp_server,
+        tool,
+    )
+
+    _IMPORT_ERROR = None
+except ImportError as exc:  # pragma: no cover - library not installed in some environments
+    ClaudeAgentOptions = None  # type: ignore
+    ClaudeSDKClient = None  # type: ignore
+    AssistantMessage = None  # type: ignore
+    ResultMessage = None  # type: ignore
+    TextBlock = None  # type: ignore
+    Message = None  # type: ignore
+    tool = None  # type: ignore
+    create_sdk_mcp_server = None  # type: ignore
+    HookMatcher = None  # type: ignore
+    HookContext = None  # type: ignore
+    SdkMcpTool = None  # type: ignore
+    PermissionMode = None  # type: ignore
+    _IMPORT_ERROR = exc
+
+
+# Custom Tools using @tool decorator (temporarily disabled)
+#
+# Temporarily comment out tool functions to avoid decorator issues
+#
+# async def atoms_status(args: Dict[str, Any]) -> Dict[str, Any]:
+#     """Check atomsAgent service health and status."""
+#     detailed = args.get("detailed", False)
+#     from atomsAgent.config import get_unified_settings
+#     settings = get_unified_settings()
+#
+#     status = {
+#         "content": [{
+#             "type": "text",
+#             "text": f"""🔍 atomsAgent Status:
+# ✅ Service: Running
+# 📊 Database: Connected
+# 🔧 Model: {settings.default_model}
+# 🧠 Session Management: Active
+# 🔒 Permissions: {settings.permission_mode or 'default'}"""
+#         }]
+#     }
+#
+#     if detailed:
+#         status["content"][0]["text"] += f"""
+#
+# 📝 Detailed Info:
+# - Workspace: {settings.workspace_path}
+# - Max Tokens: {settings.max_tokens}
+# - Temperature: {settings.temperature}
+# - MCP Servers: {len(settings.mcp_servers or {})}
+# - Agent Skills: Enabled"""
+#
+#     return status
+
+
+# # @tool("session_info", "Get current session information", {})
+# async def session_info(args: Dict[str, Any]) -> Dict[str, Any]:
+#     """Retrieve current session metadata and usage."""
+#     return {
+#         "content": [{
+#             "type": "text",
+#             "text": f"""📊 Session Information:
+# Session ID: {args.get('session_id', 'unknown')}
+# Created: {args.get('created', 'unknown')}
+# Last Activity: {args.get('last_used', 'unknown')}
+# Tool Usage: {args.get('tool_count', 0)} calls
+# Tokens Used: {args.get('tokens_used', 0)}"""
+#         }]
+#     }
+
+
+# # @tool("workspace_search", "Search workspace files with context", {"pattern": str, "max_results": int})
+# async def workspace_search(args: Dict[str, Any]) -> Dict[str, Any]:
+#     """Search files in the current workspace."""
+#     pattern = args.get("pattern", "")
+#     max_results = args.get("max_results", 10)
+#
+#     try:
+#         from pathlib import Path
+#         import re
+#
+#         workspace = Path(args.get("workspace", "."))
+#         results = []
+#
+#         # Search for files matching pattern
+#         for file_path in workspace.rglob("*"):
+#             if file_path.is_file() and len(results) < max_results:
+#                 if pattern.lower() in file_path.name.lower():
+#                     rel_path = file_path.relative_to(workspace)
+#                     results.append(str(rel_path))
+#
+#         return {
+#             "content": [{
+#                 "type": "text",
+#                 "text": f"🔍 Found {len(results)} files matching '{pattern}':\n" +
+#                          "\n".join(f"  • {result}" for result in results)
+#             }]
+#         }
+#     except Exception as e:
+#         return {
+#             "content": [{
+#                 "type": "text",
+#                 "text": f"❌ Search error: {str(e)}"
+#             }],
+#             "is_error": True
+#         }
+
+
+# Create custom MCP server with tools (temporarily empty)
+atoms_tools_server = None  # Temporarily disabled
+
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(slots=True)
+class UsageStats:
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+
+    @property
+    def total_tokens(self) -> int:
+        return self.prompt_tokens + self.completion_tokens
+
+
+@dataclass(slots=True)
+class CompletionResult:
+    text: str
+    usage: UsageStats
+    session_id: str
+    raw_messages: list[Any]
+    interrupted: bool = False
+    permission_requests: list[dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class CompletionChunk:
+    """Chunk returned from streaming completion."""
+
+    delta: str = ""
+    done: bool = False
+    usage: UsageStats | None = None
+    tool_use: dict[str, Any] | None = None
+    permission_request: dict[str, Any] | None = None
+
+
+@dataclass(slots=True)
+class SessionConfig:
+    system_prompt: str
+    model: str
+    allowed_tools: list[str]
+    disallowed_tools: list[str] = field(default_factory=list)
+    setting_sources: list[str] | None = None
+    mcp_servers: dict[str, Any] | None = None
+    env: dict[str, str] | None = None
+    temperature: float = 0.7
+    top_p: float = 1.0
+    max_tokens: int | None = None
+    permission_mode: Any | None = None
+    can_use_tool: Callable | None = None
+    hooks: dict[str, list[Any]] | None = None
+    max_turns: int | None = None
+    include_partial_messages: bool = False
+
+
+@dataclass
+class ClaudeSession:
+    session_id: str
+    sandbox: SandboxContext
+    config: SessionConfig
+    client: ClaudeSDKClient
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    last_used: float = field(default_factory=time.time)
+    connected: bool = False
+    interrupted: bool = False
+    permission_requests: list[dict[str, Any]] = field(default_factory=list)
+    tool_usage_count: int = 0
+
+    async def ensure_connected(self) -> None:
+        if not self.connected:
+            await self.client.connect()
+            self.connected = True
+
+    async def disconnect(self) -> None:
+        if self.connected:
+            await self.client.disconnect()
+            self.connected = False
+
+    async def interrupt(self) -> None:
+        """Interrupt current execution."""
+        if self.connected and not self.interrupted:
+            await self.client.interrupt()
+            self.interrupted = True
+
+
+class ClaudeSessionManager:
+    """Enhanced Claude SDK sessions with full feature support."""
+
+    def __init__(
+        self,
+        *,
+        sandbox_manager: SandboxManager,
+        default_allowed_tools: list[str] | None = None,
+        default_setting_sources: list[str] | None = None,
+        default_hooks: dict[str, list[Any]] | None = None,
+    ) -> None:
+        if _IMPORT_ERROR is not None:
+            raise RuntimeError(
+                "claude-agent-sdk is not installed. Install with `pip install claude-agent-sdk`."
+            ) from _IMPORT_ERROR
+
+        self._sandbox_manager = sandbox_manager
+        self._sessions: dict[str, ClaudeSession] = {}
+        self._default_allowed_tools = default_allowed_tools or []
+        self._default_setting_sources = default_setting_sources or ["project"]
+        self._default_hooks = default_hooks or {}
+        self._lock = asyncio.Lock()
+
+    async def get_session(
+        self,
+        *,
+        session_id: str,
+        config: SessionConfig,
+    ) -> ClaudeSession:
+        async with self._lock:
+            session = self._sessions.get(session_id)
+            if session is not None:
+                session.last_used = time.time()
+                return session
+
+            sandbox = await self._sandbox_manager.acquire(session_id)
+
+            # Merge default MCP servers with custom ones
+            all_mcp_servers = {}
+            if config.mcp_servers:
+                all_mcp_servers.update(config.mcp_servers)
+
+            # Register the bundled atoms tools server only when available.
+            if atoms_tools_server is not None:
+                all_mcp_servers["atoms-tools"] = atoms_tools_server
+
+            # Pre-tool execution hook for logging
+            async def pre_tool_hook(
+                input_data: dict[str, Any], tool_use_id: str | None, context: Any
+            ) -> dict[str, Any]:
+                tool_name = input_data.get("tool_name", "unknown")
+                print(f"[PRE-TOOL] Executing: {tool_name}")
+
+                # Security check - prevent dangerous operations
+                if tool_name == "Bash" and "rm -rf" in str(input_data.get("tool_input", {})):
+                    return {
+                        "hookSpecificOutput": {
+                            "hookEventName": "PreToolUse",
+                            "permissionDecision": "deny",
+                            "permissionDecisionReason": "Dangerous command blocked",
+                        }
+                    }
+
+                return {}
+
+            # Post-tool execution hook for monitoring
+            async def post_tool_hook(
+                input_data: dict[str, Any], tool_use_id: str | None, context: Any
+            ) -> dict[str, Any]:
+                tool_name = input_data.get("tool_name", "unknown")
+                print(f"[POST-TOOL] Completed: {tool_name}")
+                return {}
+
+            # User prompt modification hook for context enhancement
+            async def prompt_hook(
+                input_data: dict[str, Any], tool_use_id: str | None, context: Any
+            ) -> dict[str, Any]:
+                original_prompt = input_data.get("prompt", "")
+                from datetime import datetime
+
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                return {
+                    "hookSpecificOutput": {
+                        "hookEventName": "UserPromptSubmit",
+                        "updatedPrompt": f"[{timestamp}] atomsAgent Session\n{original_prompt}",
+                    }
+                }
+
+            # Build hooks configuration
+            hooks: dict[str, list[HookMatcher]] = {
+                "PreToolUse": [HookMatcher(hooks=[pre_tool_hook])],  # type: ignore[list-item]
+                "PostToolUse": [HookMatcher(hooks=[post_tool_hook])],  # type: ignore[list-item]
+                "UserPromptSubmit": [HookMatcher(hooks=[prompt_hook])],  # type: ignore[list-item]
+            }
+
+            # Merge with user-provided hooks
+            if config.hooks:
+                for event, matchers in config.hooks.items():
+                    if event not in hooks:
+                        hooks[event] = []
+                    hooks[event].extend(matchers)
+
+            # Enhanced permission handler
+            async def permission_handler(
+                tool_name: str, input_data: dict[str, Any], context: dict[str, Any]
+            ) -> dict[str, Any]:
+                """Advanced permission control with context awareness."""
+
+                # Block writes to sensitive directories
+                if tool_name in ["Write", "Edit"] and input_data.get("file_path", ""):
+                    file_path = input_data["file_path"]
+                    sensitive_paths = ["/etc", "/system", "/usr/bin", "~/.ssh"]
+                    if any(sensitive in file_path for sensitive in sensitive_paths):
+                        return {
+                            "behavior": "deny",
+                            "message": "Access to sensitive system directories not allowed",
+                            "interrupt": True,
+                        }
+
+                # Redirect operations to sandbox
+                if tool_name in ["Write", "Edit", "Read"]:
+                    file_path = input_data.get("file_path", "")
+                    if file_path and not file_path.startswith(str(sandbox.workspace_path)):
+                        safe_path = sandbox.workspace_path / file_path.lstrip("./")
+                        return {
+                            "behavior": "allow",
+                            "updatedInput": {**input_data, "file_path": str(safe_path)},
+                        }
+
+                # Log permission requests
+                permission_request = {
+                    "tool": tool_name,
+                    "input": input_data,
+                    "timestamp": time.time(),
+                    "decision": "allow",
+                }
+
+                # Find session to store request (if available)
+                current_session = self._sessions.get(session_id)
+                if current_session:
+                    current_session.permission_requests.append(permission_request)
+
+                return {"behavior": "allow", "updatedInput": input_data}
+
+            # Older claude CLI builds (bundled with some deployment targets) do not
+            # recognize the newer "--temperature" / "--topP" flags (and even
+            # `--maxTokens` on some revisions). Passing them causes the CLI to
+            # exit early with "unknown option". Stay compatible by omitting all
+            # optional flags and letting the SDK-level parameters drive behavior.
+            options = ClaudeAgentOptions(
+                system_prompt=config.system_prompt,
+                model=config.model,
+                allowed_tools=config.allowed_tools or self._default_allowed_tools,
+                disallowed_tools=config.disallowed_tools,
+                cwd=str(sandbox.workspace_path),
+                continue_conversation=True,
+                setting_sources=config.setting_sources or self._default_setting_sources,  # type: ignore[arg-type]
+                mcp_servers=all_mcp_servers,
+                env=config.env or {},
+                permission_mode=config.permission_mode or "default",
+                can_use_tool=config.can_use_tool or permission_handler,  # type: ignore[arg-type]
+                hooks=hooks,  # type: ignore[arg-type]
+                max_turns=config.max_turns,
+                include_partial_messages=config.include_partial_messages,
+                extra_args={},
+            )
+            client = ClaudeSDKClient(options=options)
+            session = ClaudeSession(
+                session_id=session_id,
+                sandbox=sandbox,
+                config=config,
+                client=client,
+            )
+            self._sessions[session_id] = session
+            return session
+
+    async def release_session(self, session_id: str, *, delete_sandbox: bool = False) -> None:
+        async with self._lock:
+            session = self._sessions.pop(session_id, None)
+        if session:
+            await session.disconnect()
+            if delete_sandbox:
+                await self._sandbox_manager.release(session_id, delete=True)
+
+
+class ClaudeAgentClient:
+    """Enhanced Claude client with full SDK capabilities."""
+
+    def __init__(
+        self,
+        *,
+        session_manager: ClaudeSessionManager,
+        default_allowed_tools: list[str] | None = None,
+        default_hooks: dict[str, list[Any]] | None = None,
+    ) -> None:
+        self._session_manager = session_manager
+        self._default_allowed_tools = default_allowed_tools or []
+        self._default_hooks = default_hooks or {}
+        self._logged_missing_key = False
+        self._credentials_tempfile: Path | None = None
+        self._vertex_credentials_path = self._prepare_vertex_credentials()
+        self._base_env = self._resolve_base_env()
+        self._vertex_ready = self._evaluate_vertex_ready(self._base_env)
+
+    def _ensure_vertex_configuration(self) -> None:
+        if self._vertex_ready:
+            return
+        self._base_env = self._resolve_base_env()
+        self._vertex_ready = self._evaluate_vertex_ready(self._base_env)
+        if not self._vertex_ready:
+            raise RuntimeError(
+                "Claude Vertex configuration not detected; set CLAUDE_CODE_USE_VERTEX=1 and Vertex project/location credentials"
+            )
+
+    def _prepare_vertex_credentials(self) -> str | None:
+        path = getattr(settings, "vertex_credentials_path", None)
+        if path:
+            expanded = os.path.expanduser(path)
+            if os.path.exists(expanded):
+                return expanded
+            logger.warning("Vertex credentials path configured but not found: %s", expanded)
+
+        credentials_json = getattr(settings, "vertex_credentials_json", None)
+        if credentials_json:
+            tmp = tempfile.NamedTemporaryFile("w", suffix="_vertex.json", delete=False)
+            tmp.write(credentials_json)
+            tmp.flush()
+            tmp.close()
+            self._credentials_tempfile = Path(tmp.name)
+            return tmp.name
+
+        existing = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+        if existing:
+            return existing
+        return None
+
+    def _resolve_base_env(self) -> dict[str, str]:
+        env: dict[str, str] = {}
+
+        session_env = getattr(settings, "session_env", {}) or {}
+        if isinstance(session_env, dict):
+            for key, value in session_env.items():
+                if value is not None:
+                    env[str(key)] = str(value)
+
+        env.setdefault("CLAUDE_CODE_USE_VERTEX", "1")
+
+        project_id = getattr(settings, "vertex_project_id", None)
+        location = getattr(settings, "vertex_location", None)
+
+        if project_id:
+            env.setdefault("VERTEX_PROJECT_ID", project_id)
+            env.setdefault("GOOGLE_CLOUD_PROJECT", project_id)
+        if location:
+            env.setdefault("VERTEX_LOCATION", location)
+            # Set additional region environment variables for Claude SDK compatibility
+            env.setdefault("GOOGLE_CLOUD_REGION", location)
+            env.setdefault("GCLOUD_REGION", location)
+            env.setdefault("CLOUD_ML_REGION", location)
+            env.setdefault("AI_PLATFORM_REGION", location)
+
+            # Set Claude-specific region overrides for global endpoint
+            if location == "global":
+                env.setdefault("VERTEX_REGION_CLAUDE_3_5_SONNET", "us-east5")
+                env.setdefault("VERTEX_REGION_CLAUDE_4_0_SONNET", "us-east5")
+                env.setdefault("VERTEX_REGION_CLAUDE_4_1_SONNET", "us-east5")
+                env.setdefault("VERTEX_REGION_CLAUDE_SONNET_4_5", "us-east5")
+
+            # Set publisher overrides for Gemini models
+            env.setdefault("VERTEX_PUBLISHER_GEMINI", "google")
+            env.setdefault("VERTEX_PUBLISHER_GEMINI_PRO", "google")
+            env.setdefault("VERTEX_PUBLISHER_GEMINI_FLASH", "google")
+
+        credentials_path = self._vertex_credentials_path
+        if credentials_path:
+            env.setdefault("GOOGLE_APPLICATION_CREDENTIALS", credentials_path)
+        elif not self._logged_missing_key:
+            logger.warning(
+                "Vertex credentials not provided; relying on application default credentials"
+            )
+            self._logged_missing_key = True
+
+        return env
+
+    def _session_env(self) -> dict[str, str]:
+        return dict(self._base_env)
+
+    def _evaluate_vertex_ready(self, env: dict[str, str]) -> bool:
+        if not env.get("VERTEX_PROJECT_ID") or not env.get("VERTEX_LOCATION"):
+            return False
+        if env.get("GOOGLE_APPLICATION_CREDENTIALS"):
+            return True
+        if os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
+            return True
+        # Allow ADC without explicit path (e.g., Workload Identity)
+        return True
+
+    async def complete(
+        self,
+        *,
+        session_id: str,
+        messages: list[dict[str, Any]],
+        temperature: float,
+        max_tokens: int | None,
+        model: str | None,
+        system_prompt: str,
+        setting_sources: list[str] | None = None,
+        allowed_tools: list[str] | None = None,
+        disallowed_tools: list[str] | None = None,
+        mcp_servers: dict[str, Any] | None = None,
+        user_identifier: str | None = None,
+        top_p: float | None = None,
+        permission_mode: Any | None = None,
+        can_use_tool: Callable | None = None,
+        hooks: dict[str, list[Any]] | None = None,
+        max_turns: int | None = None,
+        include_partial_messages: bool = False,
+    ) -> CompletionResult:
+        self._ensure_vertex_configuration()
+
+        session = await self._session_manager.get_session(
+            session_id=session_id,
+            config=SessionConfig(
+                system_prompt=system_prompt,
+                model=model,
+                allowed_tools=allowed_tools or self._default_allowed_tools,
+                disallowed_tools=disallowed_tools or [],
+                setting_sources=setting_sources,
+                mcp_servers=mcp_servers,
+                temperature=temperature,
+                top_p=top_p or 1.0,
+                max_tokens=max_tokens,
+                permission_mode=permission_mode,
+                can_use_tool=can_use_tool,
+                hooks=hooks,
+                max_turns=max_turns,
+                include_partial_messages=include_partial_messages,
+                env=self._session_env(),
+            ),
+        )
+
+        prompt_text = self._compile_prompt(messages, session)
+
+        async with session.lock:
+            await session.ensure_connected()
+
+            try:
+                async for attempt in AsyncRetrying(
+                    stop=stop_after_attempt(3),
+                    wait=wait_fixed(1),
+                    retry=retry_if_exception_type(Exception),
+                    reraise=True,
+                ):
+                    with attempt:
+                        await session.client.query(
+                            prompt_text, session_id=user_identifier or session_id
+                        )
+
+                collected_text: list[str] = []
+                usage = UsageStats()
+                raw_messages: list[Any] = []
+
+                async for message in session.client.receive_response():
+                    raw_messages.append(message)
+                    if isinstance(message, AssistantMessage):
+                        collected_text.append(self._collect_text_blocks(message.content))
+                    elif isinstance(message, ResultMessage):
+                        usage = self._usage_from_result(message)
+
+                return CompletionResult(
+                    text="".join(collected_text),
+                    usage=usage,
+                    session_id=session.session_id,
+                    raw_messages=raw_messages,
+                    interrupted=session.interrupted,
+                    permission_requests=session.permission_requests,
+                )
+
+            except Exception as e:
+                if "interrupted" in str(e).lower():
+                    session.interrupted = True
+                    return CompletionResult(
+                        text="[Task interrupted by user]",
+                        usage=UsageStats(),
+                        session_id=session.session_id,
+                        raw_messages=[],
+                        interrupted=True,
+                        permission_requests=session.permission_requests,
+                    )
+                raise
+
+    async def stream_complete(
+        self,
+        *,
+        session_id: str,
+        messages: list[dict[str, Any]],
+        temperature: float,
+        max_tokens: int | None,
+        model: str | None,
+        system_prompt: str,
+        setting_sources: list[str] | None = None,
+        allowed_tools: list[str] | None = None,
+        disallowed_tools: list[str] | None = None,
+        mcp_servers: dict[str, Any] | None = None,
+        user_identifier: str | None = None,
+        top_p: float | None = None,
+        permission_mode: Any | None = None,
+        can_use_tool: Callable | None = None,
+        hooks: dict[str, list[Any]] | None = None,
+        max_turns: int | None = None,
+        include_partial_messages: bool = False,
+    ) -> AsyncGenerator[CompletionChunk, None]:
+        self._ensure_vertex_configuration()
+
+        session = await self._session_manager.get_session(
+            session_id=session_id,
+            config=SessionConfig(
+                system_prompt=system_prompt,
+                model=model,
+                allowed_tools=allowed_tools or self._default_allowed_tools,
+                disallowed_tools=disallowed_tools or [],
+                setting_sources=setting_sources,
+                mcp_servers=mcp_servers,
+                temperature=temperature,
+                top_p=top_p or 1.0,
+                max_tokens=max_tokens,
+                permission_mode=permission_mode,
+                can_use_tool=can_use_tool,
+                hooks=hooks,
+                max_turns=max_turns,
+                include_partial_messages=include_partial_messages,
+                env=self._session_env(),
+            ),
+        )
+
+        prompt_text = self._compile_prompt(messages, session)
+
+        async with session.lock:
+            await session.ensure_connected()
+
+            try:
+                async for attempt in AsyncRetrying(
+                    stop=stop_after_attempt(3),
+                    wait=wait_fixed(1),
+                    retry=retry_if_exception_type(Exception),
+                    reraise=True,
+                ):
+                    with attempt:
+                        await session.client.query(
+                            prompt_text, session_id=user_identifier or session_id
+                        )
+
+                usage = UsageStats()
+                current_tool_use = None
+
+                async for message in session.client.receive_messages():
+                    if isinstance(message, AssistantMessage):
+                        # Extract tool use information
+                        for block in message.content:
+                            if hasattr(block, "name"):
+                                current_tool_use = {
+                                    "tool": block.name,
+                                    "input": getattr(block, "input", {}),
+                                }
+                                session.tool_usage_count += 1
+
+                        yield CompletionChunk(
+                            delta=self._collect_text_blocks(message.content),
+                            tool_use=current_tool_use,
+                        )
+
+                    elif isinstance(message, ResultMessage):
+                        usage = self._usage_from_result(message)
+                        yield CompletionChunk(done=True, usage=usage)
+                        return
+
+                    # Check for permission requests in partial messages
+                    elif hasattr(message, "subtype") and message.subtype == "permission_request":
+                        permission_req = {
+                            "tool": getattr(message, "tool_name", "unknown"),
+                            "input": getattr(message, "tool_input", {}),
+                            "timestamp": time.time(),
+                        }
+                        session.permission_requests.append(permission_req)
+                        yield CompletionChunk(permission_request=permission_req)
+
+                # Fallback to done chunk if ResultMessage not emitted
+                yield CompletionChunk(done=True, usage=usage)
+
+            except Exception as e:
+                if "interrupted" in str(e).lower():
+                    session.interrupted = True
+                    yield CompletionChunk(done=True, usage=UsageStats())
+                else:
+                    raise
+
+    async def interrupt_session(self, session_id: str) -> bool:
+        """Interrupt a running session."""
+        session = self._session_manager._sessions.get(session_id)
+        if session and not session.interrupted:
+            await session.interrupt()
+            return True
+        return False
+
+    async def get_session_status(self, session_id: str) -> dict[str, Any] | None:
+        """Get detailed session status."""
+        session = self._session_manager._sessions.get(session_id)
+        if not session:
+            return None
+
+        return {
+            "session_id": session.session_id,
+            "connected": session.connected,
+            "last_used": session.last_used,
+            "tool_usage_count": session.tool_usage_count,
+            "permission_requests": len(session.permission_requests),
+            "interrupted": session.interrupted,
+            "workspace_path": str(session.sandbox.workspace_path),
+            "model": session.config.model,
+            "permission_mode": session.config.permission_mode,
+        }
+
+    @staticmethod
+    def _compile_prompt(
+        messages: Iterable[dict[str, Any]], session: ClaudeSession | None = None
+    ) -> str:
+        """Compile messages with session context enhancement."""
+        lines: list[str] = []
+
+        # Add session context if available
+        if session:
+            lines.append(f"[atomsAgent Session: {session.session_id}]")
+            lines.append(f"[Workspace: {session.sandbox.workspace_path}]")
+            lines.append(f"[Tools Used: {session.tool_usage_count}]")
+            lines.append("")
+
+        for message in messages:
+            role = message.get("role", "").lower()
+            if role == "system":
+                continue
+            content = message.get("content")
+            text = ""
+            if isinstance(content, list):
+                parts: list[str] = []
+                for block in content:
+                    if isinstance(block, dict):
+                        parts.append(block.get("text", ""))
+                    else:
+                        parts.append(str(block))
+                text = "\n".join(filter(None, parts))
+            else:
+                text = str(content or "")
+            prefix = "User" if role == "user" else "Assistant"
+            lines.append(f"{prefix}: {text.strip()}")
+        compiled = "\n\n".join(filter(None, lines))
+        if not compiled:
+            raise ValueError("conversation must contain at least one user message")
+        return compiled
+
+    @staticmethod
+    def _collect_text_blocks(blocks: Iterable[Any]) -> str:
+        if TextBlock is None:
+            return ""
+        texts: list[str] = []
+        for block in blocks:
+            if isinstance(block, TextBlock):
+                texts.append(block.text)
+            elif isinstance(block, dict) and block.get("type") == "text":
+                texts.append(block.get("text", ""))
+        return "".join(texts)
+
+    @staticmethod
+    def _usage_from_result(result: ResultMessage) -> UsageStats:
+        usage_data = result.usage or {}
+        prompt_tokens = int(usage_data.get("prompt_tokens") or usage_data.get("promptTokens") or 0)
+        completion_tokens = int(
+            usage_data.get("completion_tokens") or usage_data.get("completionTokens") or 0
+        )
+        return UsageStats(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)
+
+
+def default_session_id() -> str:
+    return f"atoms_session_{uuid.uuid4().hex}"
+
+
+def create_session_manager(
+    sandbox_manager: SandboxManager,
+    default_allowed_tools: list[str] | None = None,
+    default_setting_sources: list[str] | None = None,
+) -> ClaudeSessionManager:
+    """Factory function to create enhanced session manager."""
+    return ClaudeSessionManager(
+        sandbox_manager=sandbox_manager,
+        default_allowed_tools=default_allowed_tools,
+        default_setting_sources=default_setting_sources,
+    )
+
+
+def create_claude_client(
+    session_manager: ClaudeSessionManager,
+    default_model: str,
+    default_allowed_tools: list[str] | None = None,
+) -> ClaudeAgentClient:
+    """Factory function to create enhanced Claude client."""
+    return ClaudeAgentClient(
+        session_manager=session_manager,
+        default_model=default_model,
+        default_allowed_tools=default_allowed_tools,
+    )

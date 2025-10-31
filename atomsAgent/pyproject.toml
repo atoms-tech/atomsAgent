@@ -1,0 +1,88 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "atoms-agent"
+version = "0.1.0"
+description = "Claude Agents SDK wrapper providing OpenAI-compatible API with Vertex AI, MCP, and Supabase integration."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "AgentAPI Team" }
+]
+dependencies = [
+  "fastapi>=0.110.0",
+  "uvicorn[standard]>=0.28.0",
+  "httpx>=0.27.0",
+  "aiocache>=0.12.0",
+  "tenacity>=8.2.0",
+  "pydantic>=2.6.0",
+  "pydantic-settings>=2.2.0",
+  "jinja2>=3.1.2",
+  "supabase>=2.4.0",
+  "claude-agent-sdk>=0.1.5,<0.2.0",
+  "orjson>=3.9.10",
+  "rich>=13.0.0",
+  "typer>=0.9.0",
+  "pyyaml>=6.0.1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "ruff>=0.3.0",
+  "pytest>=8.0.0",
+  "pytest-asyncio>=0.23.0",
+  "pytest-cov>=4.1.0",
+  "pytest-mock>=3.12.0",
+  "typer>=0.9.0",
+  "rich>=13.0.0",
+  "tqdm>=4.64.0",
+  "pre-commit>=3.6.0",
+  "supabase-pydantic>=0.6.0",
+]
+
+[project.scripts]
+atoms-agent = "atomsAgent.cli.main:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/atomsAgent"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"config" = "atomsAgent/config"
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "src/atomsAgent",
+  "config",
+  "README.md",
+  "tests",
+]
+
+[tool.uv]
+index-url = "https://pypi.org/simple"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "PT", "RUF"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "S311"]
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q"
+asyncio_mode = "auto"
+
+[tool.mypy]
+exclude = [
+  "^\\.venv/",
+  "^\\.mypy_cache/",
+  "^\\.pytest_cache/",
+  "^\\.ruff_cache/",
+]

@@ -1,0 +1,29 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from atomsAgent.settings import ConfigSettings, SecretSettings, get_config, get_secrets
+
+
+@dataclass(frozen=True)
+class SettingsProxy:
+    """Composite settings object exposing config + secrets namespaces."""
+
+    config: ConfigSettings
+    secrets: SecretSettings
+
+    def __getattr__(self, item: str):
+        if hasattr(self.config, item):
+            return getattr(self.config, item)
+        if hasattr(self.secrets, item):
+            return getattr(self.secrets, item)
+        raise AttributeError(item)
+
+
+def load_settings() -> SettingsProxy:
+    return SettingsProxy(config=get_config(), secrets=get_secrets())
+
+
+settings = load_settings()
+
+__all__ = ["SettingsProxy", "load_settings", "settings"]
