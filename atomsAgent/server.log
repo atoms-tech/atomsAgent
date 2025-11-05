@@ -1,1 +1,236 @@
-<frozen runpy>:128: RuntimeWarning: 'atomsAgent.main' found in sys.modules after import of package 'atomsAgent', but prior to execution of 'atomsAgent.main'; this may result in unpredictable behaviour
+INFO:     Will watch for changes in these directories: ['/Users/kooshapari/temp-PRODVERCEL/485/kush/agentapi/atomsAgent']
+INFO:     Uvicorn running on http://0.0.0.0:3284 (Press CTRL+C to quit)
+INFO:     Started reloader process [7627] using WatchFiles
+INFO:     Started server process [7629]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+Vertex API response: {
+  "publisherModels": [
+    {
+      "name": "publishers/google/models/imagen-4.0-generate-001",
+      "versionId": "default",
+      "supportedActions": {
+        "openGenerationAiStudio": {
+          "references": {
+            "us-east5": {
+              "uri": "https://console.cloud.google.com/vertex-ai/studio/media/generate"
+            }
+          },
+          "title": "Open Vertex AI Studio"
+        }
+      },
+      "launchStage": "GA",
+      "publisherModelTemplate": "projects/{project}/locations/{location}/publishers/google/models/imagen-4.0-generate-001@default"
+    },
+    {
+      "name": "publishers/google/models/imagen-4.0-fast-generate-001",
+      "versionId": "default",
+      "supportedActions": {
+        "openGenerationAiStudio": {
+          "references": {
+            "us-east5": {
+              "uri": "https://console.cloud.google.com/vertex-ai/studio/media/generate"
+            }
+          },
+          "title": "Open Vertex AI Studio"
+        }
+      },
+      "launchStage": "GA",
+      "publisherModelTemplate": "projects/{project}/locations/{location}/publishers/google/models/imagen-4.0-fast-generate-001@default"
+    },
+    {
+      "name": "publishers/google/models/imagen-4.0-ultra-generate-001",
+      "versionId": "default",
+      "supportedActions": {
+        "openGenerationAiStudio": {
+          "references": {
+            "us-east5": {
+              "uri": "https://console.cloud.google.com/vertex-ai/studio/media/generate"
+            }
+          },
+          "title": "Open Vertex AI Studio"
+        }
+      },
+      "launchStage": "GA",
+      "publisherModelTemplate": "projects/{project}/locations/{location}/publishers/google/models/imagen-4.0-ultra-generate-001@default"
+    },
+    {
+      "name": "publishers/google/models/imagen-3.0-capability-002",
+      "versionId": "default",
+      "launchStage": "GA",
+      "publisherModelTemplate": "projects/{project}/locations/{location}/publishers/google/models/imagen-3.0-capability-002@default"
+    }
+  ]
+}
+Fetched 0 Gemini 2.5 models from Google publisher (filtered from 4 total)
+Vertex API response: {
+  "publisherModels": [
+    {
+      "name": "publishers/anthropic/models/claude-3-opus",
+      "versionId": "20240229",
+      "openSourceCategory": "PROPRIETARY",
+      "supportedActions": {
+        "openNotebook": {
+          "references": {
+            "us-central1": {
+              "uri": "https://colab.research.google.com/github/GoogleCloudPlatform/vertex-ai-samples/blob/main/notebooks/official/generative_ai/anthropic_claude_3_intro.ipynb"
+            }
+          },
+          "title": "Open Notebook"
+        },
+        "requestAccess": {
+          "references": {
+            "us-central1": {
+              "uri": "https://console.cloud.google.com/vertex-ai/model-garden/questionnaire?model=publishers/anthropic/models/claude-3-opus&mp=anthropic/claude-3-opus.endpoints.mp-anthropic.cloud.goog&service=claude-3-opus.endpoints.mp-anthropic.cloud.goog"
+            }
+          }
+        },
+        "openNotebooks": {
+          "notebooks": [
+            {
+              "references": {
+                "us-central1": {
+                  "uri": "https://colab.research.google.com/github/GoogleCloudPlatform/vertex-ai-samples/blob/main/notebooks/official/generative_ai/anthropic_claude_3_intro.ipynb"
+                }
+              },
+              "title": "Open Notebook"
+            }
+          ]
+        }
+      },
+      "launchStage": "GA",
+      "publisherModelTemplate": "projects/{project}/locations/{location}/publishers/google/models/claude-3-opus@20240229"
+    },
+    {
+      "name": "publishers/anthropic/models/claude-3-haiku",
+      "versionId": "20240307",
+      "openSourceCategory": "PROPRIETARY",
+      "supportedActions": {
+        "openNotebook": {
+          "references": {
+            "us-central1": {
+              "uri": "https://colab.research.google.com/github/GoogleCloudPlatform/vertex-ai-samples/blob/main/notebooks/official/generative_ai/anthropic_claude_3_intro.ipynb"
+            }
+          },
+          "title": "Open Notebook"
+        },
+        "requestAccess": {
+          "references": {
+            "us-central1": {
+              "uri": "https://console.cloud.google.com/vertex-ai/model-garden/questionnaire?model=publishers/anthropic/models/claude-3-haiku&mp=anthropic/claude-3-haiku.endpoints.mp-anthropic.cloud.goog&service=claude-3-haiku.endpoints.mp-anthropic.cloud.goog"
+            }
+          }
+        },
+        "openNotebooks": {
+          "notebooks": [
+            {
+              "references": {
+                "us-central1": {
+                  "uri": "https://colab.research.google.com/github/GoogleCloudPlatform/vertex-ai-samples/blob/main/notebooks/official/generative_ai/anthropic_claude_3_intro.ipynb"
+                }
+              },
+              "title": "Open Notebook"
+            }
+          ]
+        }
+      },
+      "launchStage": "GA",
+      "publisherModelTemplate": "projects/{project}/locations/{location}/publishers/google/models/claude-3-haiku@20240307"
+    },
+    {
+      "name": "publishers/anthropic/models/claude-3-5-haiku",
+      "versionId": "20241022",
+      "openSourceCategory": "PROPRIETARY",
+      "supportedActions": {
+        "openNotebook": {
+          "references": {
+            "us-central1": {
+              "uri": "https://colab.research.google.com/github/GoogleCloudPlatform/vertex-ai-samples/blob/main/notebooks/official/generative_ai/anthropic_claude_3_intro.ipynb"
+            }
+          },
+          "title": "Open Notebook"
+        },
+        "requestAccess": {
+          "references": {
+            "us-central1": {
+              "uri": "https://console.cloud.google.com/vertex-ai/model-garden/questionnaire?model=publishers/anthropic/models/claude-3-5-haiku&mp=anthropic/claude-3-5-haiku.endpoints.mp-anthropic.cloud.goog&service=claude-3-5-haiku.endpoints.mp-anthropic.cloud.goog"
+            }
+          }
+        },
+        "openNotebooks": {
+          "notebooks": [
+            {
+              "references": {
+                "us-central1": {
+                  "uri": "https://colab.research.google.com/github/GoogleCloudPlatform/vertex-ai-samples/blob/main/notebooks/official/generative_ai/anthropic_claude_3_intro.ipynb"
+                }
+              },
+              "title": "Open Notebook"
+            }
+          ]
+        }
+      },
+      "launchStage": "GA",
+      "publisherModelTemplate": "projects/{project}/locations/{location}/publishers/google/models/claude-3-5-haiku@20241022"
+    },
+    {
+      "name": "publishers/anthropic/models/claude-opus-4",
+      "versionId": "20250514",
+      "openSourceCategory": "PROPRIETARY",
+      "supportedActions": {},
+      "launchStage": "GA",
+      "publisherModelTemplate": "projects/{project}/locations/{location}/publishers/google/models/claude-opus-4@20250514"
+    },
+    {
+      "name": "publishers/anthropic/models/claude-sonnet-4",
+      "versionId": "20250514",
+      "openSourceCategory": "PROPRIETARY",
+      "supportedActions": {},
+      "launchStage": "GA",
+      "publisherModelTemplate": "projects/{project}/locations/{location}/publishers/google/models/claude-sonnet-4@20250514"
+    },
+    {
+      "name": "publishers/anthropic/models/claude-sonnet-4-5",
+      "versionId": "20250929",
+      "openSourceCategory": "PROPRIETARY",
+      "supportedActions": {},
+      "launchStage": "GA",
+      "publisherModelTemplate": "projects/{project}/locations/{location}/publishers/google/models/claude-sonnet-4-5@20250929"
+    }
+  ]
+}
+Fetched 1 Claude 4.5 models from Anthropic publisher (filtered from 6 total)
+Successfully fetched 1 filtered models from Vertex AI
+INFO:     127.0.0.1:51247 - "GET /v1/models HTTP/1.1" 200 OK
+WARNING:  WatchFiles detected changes in '.venv/lib/python3.12/site-packages/atomsAgent/services/chat_history.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/supabase.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/codegen/supabase.py', '.venv/lib/python3.12/site-packages/atomsAgent/schemas/chat.py', '.venv/lib/python3.12/site-packages/atomsAgent/codegen/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/ui/mcp_tab.py', '.venv/lib/python3.12/site-packages/atomsAgent/api/routes/platform.py', '.venv/lib/python3.12/site-packages/atomsAgent/ui/chat_tab.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/minimal_agentapi_schema/fastapi/schema_public_latest.py', '.venv/lib/python3.12/site-packages/atomsAgent/services/prompts.py', '.venv/lib/python3.12/site-packages/atomsAgent/api/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/repositories.py', '.venv/lib/python3.12/site-packages/atomsAgent/main.py', '.venv/lib/python3.12/site-packages/atomsAgent/settings/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/cli/dev_ui.py', '.venv/lib/python3.12/site-packages/atomsAgent/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/settings/secrets.py', '.venv/lib/python3.12/site-packages/atomsAgent/settings/config.py', '.venv/lib/python3.12/site-packages/atomsAgent/ui/settings_tab.py', '.venv/lib/python3.12/site-packages/atomsAgent/services/chat_client.py', '.venv/lib/python3.12/site-packages/atomsAgent/api/routes/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/ui/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/cli/test_commands.py', '.venv/lib/python3.12/site-packages/atomsAgent/cli/chat.py', '.venv/lib/python3.12/site-packages/atomsAgent/schemas/platform.py', '.venv/lib/python3.12/site-packages/atomsAgent/utils/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/services/vertex_models.py', '.venv/lib/python3.12/site-packages/atomsAgent/codegen/sync.py', '.venv/lib/python3.12/site-packages/atomsAgent/cli/main.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/agent_system_schema/fastapi/schema_public_latest.py', '.venv/lib/python3.12/site-packages/atomsAgent/api/routes/openai.py', '.venv/lib/python3.12/site-packages/atomsAgent/services/platform.py', '.venv/lib/python3.12/site-packages/atomsAgent/services/claude_client.py', '.venv/lib/python3.12/site-packages/atomsAgent/services/mcp_registry.py', '.venv/lib/python3.12/site-packages/atomsAgent/schemas/mcp.py', '.venv/lib/python3.12/site-packages/atomsAgent/services/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/agentapi_incremental_migration/fastapi/schema_public_latest.py', '.venv/lib/python3.12/site-packages/atomsAgent/api/routes/chat.py', '.venv/lib/python3.12/site-packages/atomsAgent/config.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/consolidated_migration/fastapi/schema_public_latest.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/supabase_migration_minimal/fastapi/schema_public_latest.py', '.venv/lib/python3.12/site-packages/atomsAgent/cli/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/ui/app.py', '.venv/lib/python3.12/site-packages/atomsAgent/schemas/workflows.py', '.venv/lib/python3.12/site-packages/atomsAgent/dependencies.py', '.venv/lib/python3.12/site-packages/atomsAgent/schemas/openai.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/schema/fastapi/schema_public_latest.py', '.venv/lib/python3.12/site-packages/atomsAgent/services/sandbox.py', '.venv/lib/python3.12/site-packages/atomsAgent/api/routes/mcp.py', '.venv/lib/python3.12/site-packages/atomsAgent/utils/caching.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [7629]
+INFO:     Started server process [60012]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in '.venv/lib/python3.12/site-packages/atomsAgent/services/chat_history.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/supabase.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/codegen/supabase.py', '.venv/lib/python3.12/site-packages/atomsAgent/schemas/chat.py', '.venv/lib/python3.12/site-packages/atomsAgent/codegen/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/ui/mcp_tab.py', '.venv/lib/python3.12/site-packages/atomsAgent/api/routes/platform.py', '.venv/lib/python3.12/site-packages/atomsAgent/ui/chat_tab.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/minimal_agentapi_schema/fastapi/schema_public_latest.py', '.venv/lib/python3.12/site-packages/atomsAgent/services/prompts.py', '.venv/lib/python3.12/site-packages/atomsAgent/api/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/repositories.py', '.venv/lib/python3.12/site-packages/atomsAgent/main.py', '.venv/lib/python3.12/site-packages/atomsAgent/settings/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/cli/dev_ui.py', '.venv/lib/python3.12/site-packages/atomsAgent/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/settings/secrets.py', '.venv/lib/python3.12/site-packages/atomsAgent/settings/config.py', '.venv/lib/python3.12/site-packages/atomsAgent/ui/settings_tab.py', '.venv/lib/python3.12/site-packages/atomsAgent/services/chat_client.py', '.venv/lib/python3.12/site-packages/atomsAgent/api/routes/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/ui/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/cli/test_commands.py', '.venv/lib/python3.12/site-packages/atomsAgent/cli/chat.py', '.venv/lib/python3.12/site-packages/atomsAgent/schemas/platform.py', '.venv/lib/python3.12/site-packages/atomsAgent/utils/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/services/vertex_models.py', '.venv/lib/python3.12/site-packages/atomsAgent/codegen/sync.py', '.venv/lib/python3.12/site-packages/atomsAgent/cli/main.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/agent_system_schema/fastapi/schema_public_latest.py', '.venv/lib/python3.12/site-packages/atomsAgent/api/routes/openai.py', '.venv/lib/python3.12/site-packages/atomsAgent/services/platform.py', '.venv/lib/python3.12/site-packages/atomsAgent/services/claude_client.py', '.venv/lib/python3.12/site-packages/atomsAgent/services/mcp_registry.py', '.venv/lib/python3.12/site-packages/atomsAgent/schemas/mcp.py', '.venv/lib/python3.12/site-packages/atomsAgent/services/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/agentapi_incremental_migration/fastapi/schema_public_latest.py', '.venv/lib/python3.12/site-packages/atomsAgent/api/routes/chat.py', '.venv/lib/python3.12/site-packages/atomsAgent/config.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/consolidated_migration/fastapi/schema_public_latest.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/supabase_migration_minimal/fastapi/schema_public_latest.py', '.venv/lib/python3.12/site-packages/atomsAgent/cli/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/ui/app.py', '.venv/lib/python3.12/site-packages/atomsAgent/schemas/workflows.py', '.venv/lib/python3.12/site-packages/atomsAgent/dependencies.py', '.venv/lib/python3.12/site-packages/atomsAgent/schemas/openai.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/schema/fastapi/schema_public_latest.py', '.venv/lib/python3.12/site-packages/atomsAgent/services/sandbox.py', '.venv/lib/python3.12/site-packages/atomsAgent/api/routes/mcp.py', '.venv/lib/python3.12/site-packages/atomsAgent/utils/caching.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [60012]
+INFO:     Started server process [60199]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in '.venv/lib/python3.12/site-packages/atomsAgent/services/chat_history.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/supabase.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/codegen/supabase.py', '.venv/lib/python3.12/site-packages/atomsAgent/schemas/chat.py', '.venv/lib/python3.12/site-packages/atomsAgent/codegen/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/ui/mcp_tab.py', '.venv/lib/python3.12/site-packages/atomsAgent/api/routes/platform.py', '.venv/lib/python3.12/site-packages/atomsAgent/ui/chat_tab.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/minimal_agentapi_schema/fastapi/schema_public_latest.py', '.venv/lib/python3.12/site-packages/atomsAgent/services/prompts.py', '.venv/lib/python3.12/site-packages/atomsAgent/api/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/repositories.py', '.venv/lib/python3.12/site-packages/atomsAgent/main.py', '.venv/lib/python3.12/site-packages/atomsAgent/settings/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/cli/dev_ui.py', '.venv/lib/python3.12/site-packages/atomsAgent/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/settings/secrets.py', '.venv/lib/python3.12/site-packages/atomsAgent/settings/config.py', '.venv/lib/python3.12/site-packages/atomsAgent/ui/settings_tab.py', '.venv/lib/python3.12/site-packages/atomsAgent/services/chat_client.py', '.venv/lib/python3.12/site-packages/atomsAgent/api/routes/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/ui/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/cli/test_commands.py', '.venv/lib/python3.12/site-packages/atomsAgent/cli/chat.py', '.venv/lib/python3.12/site-packages/atomsAgent/schemas/platform.py', '.venv/lib/python3.12/site-packages/atomsAgent/utils/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/services/vertex_models.py', '.venv/lib/python3.12/site-packages/atomsAgent/codegen/sync.py', '.venv/lib/python3.12/site-packages/atomsAgent/cli/main.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/agent_system_schema/fastapi/schema_public_latest.py', '.venv/lib/python3.12/site-packages/atomsAgent/api/routes/openai.py', '.venv/lib/python3.12/site-packages/atomsAgent/services/platform.py', '.venv/lib/python3.12/site-packages/atomsAgent/services/claude_client.py', '.venv/lib/python3.12/site-packages/atomsAgent/services/mcp_registry.py', '.venv/lib/python3.12/site-packages/atomsAgent/schemas/mcp.py', '.venv/lib/python3.12/site-packages/atomsAgent/services/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/agentapi_incremental_migration/fastapi/schema_public_latest.py', '.venv/lib/python3.12/site-packages/atomsAgent/api/routes/chat.py', '.venv/lib/python3.12/site-packages/atomsAgent/config.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/consolidated_migration/fastapi/schema_public_latest.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/supabase_migration_minimal/fastapi/schema_public_latest.py', '.venv/lib/python3.12/site-packages/atomsAgent/cli/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/ui/app.py', '.venv/lib/python3.12/site-packages/atomsAgent/schemas/workflows.py', '.venv/lib/python3.12/site-packages/atomsAgent/dependencies.py', '.venv/lib/python3.12/site-packages/atomsAgent/schemas/openai.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/schema/fastapi/schema_public_latest.py', '.venv/lib/python3.12/site-packages/atomsAgent/services/sandbox.py', '.venv/lib/python3.12/site-packages/atomsAgent/api/routes/mcp.py', '.venv/lib/python3.12/site-packages/atomsAgent/utils/caching.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [60199]
+INFO:     Started server process [82996]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in '.venv/lib/python3.12/site-packages/atomsAgent/services/chat_history.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/supabase.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/codegen/supabase.py', '.venv/lib/python3.12/site-packages/atomsAgent/schemas/chat.py', '.venv/lib/python3.12/site-packages/atomsAgent/codegen/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/ui/mcp_tab.py', '.venv/lib/python3.12/site-packages/atomsAgent/api/routes/platform.py', '.venv/lib/python3.12/site-packages/atomsAgent/ui/chat_tab.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/minimal_agentapi_schema/fastapi/schema_public_latest.py', '.venv/lib/python3.12/site-packages/atomsAgent/services/prompts.py', '.venv/lib/python3.12/site-packages/atomsAgent/api/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/repositories.py', '.venv/lib/python3.12/site-packages/atomsAgent/main.py', '.venv/lib/python3.12/site-packages/atomsAgent/settings/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/cli/dev_ui.py', '.venv/lib/python3.12/site-packages/atomsAgent/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/settings/secrets.py', '.venv/lib/python3.12/site-packages/atomsAgent/settings/config.py', '.venv/lib/python3.12/site-packages/atomsAgent/ui/settings_tab.py', '.venv/lib/python3.12/site-packages/atomsAgent/services/chat_client.py', '.venv/lib/python3.12/site-packages/atomsAgent/api/routes/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/ui/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/cli/test_commands.py', '.venv/lib/python3.12/site-packages/atomsAgent/cli/chat.py', '.venv/lib/python3.12/site-packages/atomsAgent/schemas/platform.py', '.venv/lib/python3.12/site-packages/atomsAgent/utils/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/services/vertex_models.py', '.venv/lib/python3.12/site-packages/atomsAgent/codegen/sync.py', '.venv/lib/python3.12/site-packages/atomsAgent/cli/main.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/agent_system_schema/fastapi/schema_public_latest.py', '.venv/lib/python3.12/site-packages/atomsAgent/api/routes/openai.py', '.venv/lib/python3.12/site-packages/atomsAgent/services/platform.py', '.venv/lib/python3.12/site-packages/atomsAgent/services/claude_client.py', '.venv/lib/python3.12/site-packages/atomsAgent/services/mcp_registry.py', '.venv/lib/python3.12/site-packages/atomsAgent/schemas/mcp.py', '.venv/lib/python3.12/site-packages/atomsAgent/services/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/agentapi_incremental_migration/fastapi/schema_public_latest.py', '.venv/lib/python3.12/site-packages/atomsAgent/api/routes/chat.py', '.venv/lib/python3.12/site-packages/atomsAgent/config.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/consolidated_migration/fastapi/schema_public_latest.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/supabase_migration_minimal/fastapi/schema_public_latest.py', '.venv/lib/python3.12/site-packages/atomsAgent/cli/__init__.py', '.venv/lib/python3.12/site-packages/atomsAgent/ui/app.py', '.venv/lib/python3.12/site-packages/atomsAgent/schemas/workflows.py', '.venv/lib/python3.12/site-packages/atomsAgent/dependencies.py', '.venv/lib/python3.12/site-packages/atomsAgent/schemas/openai.py', '.venv/lib/python3.12/site-packages/atomsAgent/db/schema/fastapi/schema_public_latest.py', '.venv/lib/python3.12/site-packages/atomsAgent/services/sandbox.py', '.venv/lib/python3.12/site-packages/atomsAgent/api/routes/mcp.py', '.venv/lib/python3.12/site-packages/atomsAgent/utils/caching.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [82996]
+INFO:     Started server process [46951]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.

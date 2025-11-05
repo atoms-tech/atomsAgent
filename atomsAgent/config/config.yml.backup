@@ -9,10 +9,7 @@
 # =======================
 app_version: "0.1.0"
 enable_docs: true
-cors_allow_origins:
-  - "http://localhost:3000"
-  - "http://localhost:3001"
-  - "https://atoms.tech"
+cors_allow_origins: []
 
 # =======================
 # Vertex AI Settings
@@ -51,3 +48,4 @@ default_allowed_tools:
   - "workspace_search"
 
 default_setting_sources: []
+

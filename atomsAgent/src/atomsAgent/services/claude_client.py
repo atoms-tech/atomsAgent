@@ -547,6 +547,10 @@ class ClaudeAgentClient:
     ) -> CompletionResult:
         self._ensure_vertex_configuration()
 
+        # Validate required parameters
+        if model is None:
+            raise ValueError("model parameter is required and cannot be None")
+
         session = await self._session_manager.get_session(
             session_id=session_id,
             config=SessionConfig(
@@ -591,9 +595,9 @@ class ClaudeAgentClient:
 
                 async for message in session.client.receive_response():
                     raw_messages.append(message)
-                    if isinstance(message, AssistantMessage):
+                    if AssistantMessage is not None and isinstance(message, AssistantMessage):
                         collected_text.append(self._collect_text_blocks(message.content))
-                    elif isinstance(message, ResultMessage):
+                    elif ResultMessage is not None and isinstance(message, ResultMessage):
                         usage = self._usage_from_result(message)
 
                 return CompletionResult(
@@ -641,6 +645,10 @@ class ClaudeAgentClient:
     ) -> AsyncGenerator[CompletionChunk, None]:
         self._ensure_vertex_configuration()
 
+        # Validate required parameters
+        if model is None:
+            raise ValueError("model parameter is required and cannot be None")
+
         session = await self._session_manager.get_session(
             session_id=session_id,
             config=SessionConfig(
@@ -683,7 +691,7 @@ class ClaudeAgentClient:
                 current_tool_use = None
 
                 async for message in session.client.receive_messages():
-                    if isinstance(message, AssistantMessage):
+                    if AssistantMessage is not None and isinstance(message, AssistantMessage):
                         # Extract tool use information
                         for block in message.content:
                             if hasattr(block, "name"):
@@ -698,7 +706,7 @@ class ClaudeAgentClient:
                             tool_use=current_tool_use,
                         )
 
-                    elif isinstance(message, ResultMessage):
+                    elif ResultMessage is not None and isinstance(message, ResultMessage):
                         usage = self._usage_from_result(message)
                         yield CompletionChunk(done=True, usage=usage)
                         return
@@ -827,12 +835,10 @@ def create_session_manager(
 
 def create_claude_client(
     session_manager: ClaudeSessionManager,
-    default_model: str,
     default_allowed_tools: list[str] | None = None,
 ) -> ClaudeAgentClient:
     """Factory function to create enhanced Claude client."""
     return ClaudeAgentClient(
         session_manager=session_manager,
-        default_model=default_model,
         default_allowed_tools=default_allowed_tools,
     )

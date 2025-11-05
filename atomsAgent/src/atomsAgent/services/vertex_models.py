@@ -11,9 +11,15 @@ from tenacity import AsyncRetrying, retry_if_exception_type, stop_after_attempt,
 from atomsAgent.schemas.openai import ModelInfo, ModelListResponse
 
 try:  # pragma: no cover - optional dependency
-    from google.auth.transport.requests import Request  # type: ignore[import] # pyright: ignore[reportMissingImports] # mypy: ignore[import-not-found]
-    from google.oauth2 import service_account  # type: ignore[import] # pyright: ignore[reportMissingImports] # mypy: ignore[import-not-found]
-    from google.oauth2.credentials import Credentials as OAuth2Credentials  # type: ignore[import] # pyright: ignore[reportMissingImports] # mypy: ignore[import-not-found]
+    from google.auth.transport.requests import (
+        Request,  # type: ignore[import] # pyright: ignore[reportMissingImports] # mypy: ignore[import-not-found]
+    )
+    from google.oauth2 import (
+        service_account,  # type: ignore[import] # pyright: ignore[reportMissingImports] # mypy: ignore[import-not-found]
+    )
+    from google.oauth2.credentials import (
+        Credentials as OAuth2Credentials,  # type: ignore[import] # pyright: ignore[reportMissingImports] # mypy: ignore[import-not-found]
+    )
 except ImportError:  # pragma: no cover
     service_account = None  # type: ignore
     Request = None  # type: ignore
@@ -247,7 +253,7 @@ class VertexModelService:
             try:
                 import google.auth  # type: ignore[import]
 
-                credentials, project = google.auth.default(
+                credentials, _ = google.auth.default(
                     scopes=["https://www.googleapis.com/auth/cloud-platform"],
                     quota_project_id=self.project_id,
                 )
@@ -269,7 +275,9 @@ class VertexModelService:
         elif credentials_data.get("type") == "authorized_user":
             # OAuth2 user credentials (client credentials flow)
             try:
-                from google.oauth2.credentials import Credentials as OAuth2Credentials  # type: ignore[import] # pyright: ignore[reportMissingImports] # mypy: ignore[import-not-found]
+                from google.oauth2.credentials import (
+                    Credentials as OAuth2Credentials,  # type: ignore[import] # pyright: ignore[reportMissingImports] # mypy: ignore[import-not-found]
+                )
 
                 credentials = OAuth2Credentials.from_authorized_user_info(
                     credentials_data,

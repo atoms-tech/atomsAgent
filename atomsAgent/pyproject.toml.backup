@@ -27,7 +27,6 @@ dependencies = [
   "rich>=13.0.0",
   "typer>=0.9.0",
   "pyyaml>=6.0.1",
-  "sseclient-py>=1.8.0",
 ]
 
 [project.optional-dependencies]
@@ -42,9 +41,6 @@ dev = [
   "tqdm>=4.64.0",
   "pre-commit>=3.6.0",
   "supabase-pydantic>=0.6.0",
-  # Dev UI dependencies
-  "gradio>=4.0.0",
-  "markdown>=3.5.0",
 ]
 
 [project.scripts]

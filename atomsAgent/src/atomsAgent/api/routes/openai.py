@@ -9,7 +9,6 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 
-from atomsAgent.config import settings
 from atomsAgent.dependencies import (
     get_chat_history_service,
     get_claude_client,

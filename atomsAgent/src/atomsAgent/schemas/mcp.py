@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, HttpUrl
 
+AuthTypeLiteral = Literal["none", "bearer", "oauth", "api_key"]
+
 
 class MCPScope(BaseModel):
     type: Literal["platform", "organization", "user"]
@@ -18,11 +20,11 @@ class MCPMetadata(BaseModel):
 
 
 class MCPConfiguration(BaseModel):
-    id: UUID
+    id: UUID | str
     name: str
     type: Literal["http"] = Field(default="http")
     endpoint: HttpUrl
-    auth_type: Literal["none", "bearer", "oauth"] = Field(default="none")
+    auth_type: AuthTypeLiteral = Field(default="none")
     bearer_token_id: UUID | None = None
     oauth_provider: str | None = None
     enabled: bool = True
@@ -35,7 +37,7 @@ class MCPCreateRequest(BaseModel):
     name: str
     type: Literal["http"] = Field(default="http")
     endpoint: HttpUrl
-    auth_type: Literal["none", "bearer", "oauth"] = Field(default="none")
+    auth_type: AuthTypeLiteral = Field(default="none")
     bearer_token: str | None = None
     oauth_provider: str | None = None
     enabled: bool = True
@@ -47,7 +49,7 @@ class MCPUpdateRequest(BaseModel):
     name: str | None = None
     type: Literal["http"] | None = None
     endpoint: HttpUrl | None = None
-    auth_type: Literal["none", "bearer", "oauth"] | None = None
+    auth_type: AuthTypeLiteral | None = None
     bearer_token: str | None = None
     oauth_provider: str | None = None
     enabled: bool | None = None

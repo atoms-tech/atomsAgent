@@ -21,7 +21,7 @@ class MCPListResponseCompat(BaseModel):
     items: list[dict[str, Any]] = Field(default_factory=list)
 
 
-AuthTypeLiteral = Literal["none", "bearer", "oauth"]
+AuthTypeLiteral = Literal["none", "bearer", "oauth", "api_key"]
 ConfigTypeLiteral = Literal["http"]
 
 _HTTP_URL_ADAPTER = TypeAdapter(HttpUrl)
@@ -101,6 +101,7 @@ class MCPRegistryService:
         auth_value = record.auth_type
         if auth_value not in {"none", "bearer", "oauth", "api_key"}:
             raise ValueError(f"Unsupported MCP auth type '{auth_value}'")
+        auth_type = cast(AuthTypeLiteral, auth_value)
 
         # Map org_id to organization_id
         organization_id = None
@@ -126,12 +127,17 @@ class MCPRegistryService:
             scope = MCPScope(type="organization", organization_id=organization_id, user_id=None)
 
         # Create MCPConfiguration object
+        try:
+            config_id: UUID | str = UUID(record.id)
+        except (TypeError, ValueError, AttributeError):
+            config_id = record.id
+
         return MCPConfiguration(
-            id=UUID(record.id),  # Convert to UUID for type compatibility
+            id=config_id,
             name=record.name,
             type=cast(Literal["http"], config_type),
             endpoint=endpoint,  # Already an HttpUrl
-            auth_type=cast(Literal["none", "bearer", "oauth"], auth_value),
+            auth_type=auth_type,
             enabled=record.enabled,
             metadata=metadata,
             scope=scope,

@@ -21,6 +21,10 @@ from rich.console import Console
 from rich.json import JSON
 from rich.table import Table
 
+# Import new command groups
+from atomsAgent.cli.chat import chat_app
+from atomsAgent.cli.dev_ui import dev_ui_app
+from atomsAgent.cli.test_commands import test_app
 from atomsAgent.schemas.mcp import (
     MCPConfiguration,
     MCPCreateRequest,
@@ -35,11 +39,11 @@ if TYPE_CHECKING:  # pragma: no cover - import only for type checking
     from atomsAgent.services.vertex_models import VertexModelService
 
 
-AuthTypeLiteral = Literal["none", "bearer", "oauth"]
+AuthTypeLiteral = Literal["none", "bearer", "oauth", "api_key"]
 ScopeLiteral = Literal["platform", "organization", "user"]
 
 _HTTP_URL_ADAPTER = TypeAdapter(HttpUrl)
-_AUTH_TYPES: set[str] = {"none", "bearer", "oauth"}
+_AUTH_TYPES: set[str] = {"none", "bearer", "oauth", "api_key"}
 _OAUTH_PROVIDERS: set[str] = {"github", "google", "microsoft", "auth0"}
 
 
@@ -70,6 +74,9 @@ app.add_typer(vertex_app, name="vertex")
 app.add_typer(mcp_app, name="mcp")
 app.add_typer(prompt_app, name="prompt")
 app.add_typer(server_app, name="server")
+app.add_typer(chat_app, name="chat")
+app.add_typer(dev_ui_app, name="dev-ui")
+app.add_typer(test_app, name="test")
 
 
 class CommandError(RuntimeError):
