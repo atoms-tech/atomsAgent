@@ -1,5 +1,5 @@
 """Route registration helpers."""
 
-from atomsAgent.api.routes import mcp, openai, platform
+from atomsAgent.api.routes import chat, mcp, oauth, openai, platform
 
-__all__ = ["mcp", "openai", "platform"]
+__all__ = ["chat", "mcp", "oauth", "openai", "platform"]
