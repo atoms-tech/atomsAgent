@@ -1,0 +1,83 @@
+services:
+  - type: web
+    name: atoms-agent-api
+    runtime: python
+    region: oregon
+    plan: starter
+    branch: main
+    rootDir: atomsAgent
+    buildCommand: pip install uv && uv pip install --system .
+    startCommand: uvicorn atomsAgent.main:app --host 0.0.0.0 --port $PORT
+    autoDeploy: true
+    healthCheckPath: /health
+    envVars:
+      # Application Settings
+      - key: ATOMS_CONFIG_PATH
+        value: config/config.yml
+      - key: ATOMS_SECRETS_PATH
+        value: config/secrets.yml
+      - key: ATOMS_APP_VERSION
+        value: "0.1.0"
+      - key: ATOMS_ENABLE_DOCS
+        value: "true"
+      - key: ATOMS_CORS_ALLOW_ORIGINS
+        value: https://atoms.tech,https://ai.atoms.tech
+
+      # Vertex AI Settings
+      - key: ATOMS_VERTEX_PROJECT_ID
+        value: serious-mile-462615-a2
+      - key: ATOMS_VERTEX_LOCATION
+        value: global
+
+      # Model Settings
+      - key: ATOMS_MODEL_CACHE_TTL_SECONDS
+        value: "600"
+
+      # Sandbox Settings
+      - key: ATOMS_SANDBOX_ROOT_DIR
+        value: /tmp/atomsAgent/sandboxes
+
+      # Python Version
+      - key: PYTHON_VERSION
+        value: 3.10.12
+
+      # ===== SECRETS (Add via Render Dashboard) =====
+      # After creating the service, add these secret environment variables:
+
+      # Vertex AI Credentials (JSON as single line string)
+      - key: ATOMS_SECRET_VERTEX_CREDENTIALS_JSON
+        sync: false
+
+      # Vertex AI Project Settings
+      - key: ATOMS_SECRET_VERTEX_PROJECT_ID
+        value: serious-mile-462615-a2
+      - key: ATOMS_SECRET_VERTEX_LOCATION
+        value: us-east5
+
+      # Supabase Configuration
+      - key: ATOMS_SECRET_SUPABASE_URL
+        sync: false
+      - key: ATOMS_SECRET_SUPABASE_ANON_KEY
+        sync: false
+      - key: ATOMS_SECRET_SUPABASE_SERVICE_KEY
+        sync: false
+
+      # Authentication
+      - key: ATOMS_SECRET_AUTHKIT_JWKS_URL
+        sync: false
+
+      # Encryption
+      - key: ATOMS_SECRET_TOKEN_ENCRYPTION_KEY
+        sync: false
+
+      # Static API Key (for testing)
+      - key: ATOMS_SECRET_STATIC_API_KEY
+        sync: false
+      - key: ATOMS_SECRET_STATIC_API_USER_ID
+        value: static-test-user
+      - key: ATOMS_SECRET_STATIC_API_ORG_ID
+        value: static-test-org
+      - key: ATOMS_SECRET_STATIC_API_EMAIL
+        value: test@agentapi.local
+      - key: ATOMS_SECRET_STATIC_API_NAME
+        value: Test User
