@@ -185,7 +185,6 @@ class SessionConfig:
     disallowed_tools: list[str] = field(default_factory=list)
     setting_sources: list[str] | None = None
     mcp_servers: dict[str, Any] | None = None
-    user_token: str | None = None
     env: dict[str, str] | None = None
     temperature: float = 0.7
     top_p: float = 1.0
@@ -538,7 +537,6 @@ class ClaudeAgentClient:
         allowed_tools: list[str] | None = None,
         disallowed_tools: list[str] | None = None,
         mcp_servers: dict[str, Any] | None = None,
-        user_token: str | None = None,
         user_identifier: str | None = None,
         top_p: float | None = None,
         permission_mode: Any | None = None,
@@ -562,7 +560,6 @@ class ClaudeAgentClient:
                 disallowed_tools=disallowed_tools or [],
                 setting_sources=setting_sources,
                 mcp_servers=mcp_servers,
-                user_token=user_token,
                 temperature=temperature,
                 top_p=top_p or 1.0,
                 max_tokens=max_tokens,
@@ -638,7 +635,6 @@ class ClaudeAgentClient:
         allowed_tools: list[str] | None = None,
         disallowed_tools: list[str] | None = None,
         mcp_servers: dict[str, Any] | None = None,
-        user_token: str | None = None,
         user_identifier: str | None = None,
         top_p: float | None = None,
         permission_mode: Any | None = None,
@@ -662,7 +658,6 @@ class ClaudeAgentClient:
                 disallowed_tools=disallowed_tools or [],
                 setting_sources=setting_sources,
                 mcp_servers=mcp_servers,
-                user_token=user_token,
                 temperature=temperature,
                 top_p=top_p or 1.0,
                 max_tokens=max_tokens,

@@ -4,9 +4,9 @@ import json
 import time
 import uuid
 from collections.abc import AsyncGenerator
-from typing import Any
+from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.responses import StreamingResponse
 
 from atomsAgent.dependencies import (
@@ -15,6 +15,7 @@ from atomsAgent.dependencies import (
     get_prompt_orchestrator,
     get_vertex_model_service,
 )
+from atomsAgent.mcp.integration import compose_mcp_servers
 from atomsAgent.schemas.openai import (
     ChatCompletionChoice,
     ChatCompletionRequest,
@@ -38,6 +39,7 @@ router = APIRouter()
 @router.post("/chat/completions", response_model=ChatCompletionResponse)
 async def create_chat_completion(
     request: ChatCompletionRequest,
+    authorization: Optional[str] = Header(None),
     claude_client: ClaudeAgentClient = Depends(get_claude_client),
     prompt_orchestrator: PromptOrchestrator = Depends(get_prompt_orchestrator),
     history_service: ChatHistoryService = Depends(get_chat_history_service),
@@ -53,6 +55,19 @@ async def create_chat_completion(
     allowed_tools: list[str] | None = metadata.get("allowed_tools")
     setting_sources: list[str] | None = metadata.get("setting_sources")
     mcp_servers: dict[str, Any] | None = metadata.get("mcp_servers")
+
+    # Extract user token from Authorization header for internal MCPs
+    user_token = None
+    if authorization and authorization.startswith("Bearer "):
+        user_token = authorization.replace("Bearer ", "").strip()
+
+    # Compose MCP servers if not provided, passing user_token for internal MCPs
+    if mcp_servers is None and user_id:
+        mcp_servers = await compose_mcp_servers(
+            user_id=user_id,
+            org_id=organization_id,
+            user_token=user_token,
+        )
 
     system_prompt = request.system_prompt or await prompt_orchestrator.compose_prompt(
         organization_id=organization_id,
@@ -121,6 +136,7 @@ async def create_chat_completion(
                     setting_sources=setting_sources,
                     allowed_tools=allowed_tools,
                     mcp_servers=mcp_servers,
+                    user_token=user_token,
                     user_identifier=request.user,
                     top_p=request.top_p,
                 ):
@@ -182,6 +198,7 @@ async def create_chat_completion(
             setting_sources=setting_sources,
             allowed_tools=allowed_tools,
             mcp_servers=mcp_servers,
+            user_token=user_token,
             user_identifier=request.user,
             top_p=request.top_p,
         )
