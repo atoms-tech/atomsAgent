@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
-from atomsAgent.api.routes import chat, mcp, oauth, openai, platform
+from atomsAgent.api.routes import chat, mcp, openai, platform
+# from atomsAgent.api.routes import oauth  # Temporarily disabled - needs oauth_manager implementation
 from atomsAgent.schemas.platform import SystemHealth
 
 
@@ -9,7 +10,7 @@ def register_routes(app: FastAPI) -> None:
     app.include_router(openai.router, prefix="/v1", tags=["openai"])
     app.include_router(chat.router, prefix="/atoms/chat", tags=["chat"])
     app.include_router(mcp.router, prefix="/atoms/mcp", tags=["mcp"])
-    app.include_router(oauth.router, prefix="/atoms/oauth", tags=["oauth"])
+    # app.include_router(oauth.router, prefix="/atoms/oauth", tags=["oauth"])  # Temporarily disabled
     app.include_router(platform.router, prefix="/api/v1/platform", tags=["platform"])
 
     @app.get("/health", tags=["health"])

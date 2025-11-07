@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
+from atomsAgent.db.models import SupabaseMcpOauthToken, SupabaseMcpOauthTransaction
 from atomsAgent.db.supabase import SupabaseClient
 
 
@@ -518,3 +519,122 @@ def _chat_message_from_row(row: dict[str, Any]) -> ChatMessageRecord:
         created_at=str(row.get("created_at", "")),
         updated_at=str(row.get("updated_at", "")),
     )
+
+
+@dataclass
+class MCPOAuthTransactionRecord:
+    """Record for MCP OAuth transaction."""
+    id: str
+    user_id: str | None
+    organization_id: str | None
+    mcp_namespace: str
+    provider_key: str
+    status: str
+    authorization_url: str | None
+    code_challenge: str | None
+    code_verifier: str | None
+    state: str | None
+    scopes: list[str]
+    upstream_metadata: dict[str, Any] | str
+    error: str | None
+    created_at: str
+    updated_at: str
+    completed_at: str | None
+
+
+@dataclass
+class MCPOAuthTokenRecord:
+    """Record for MCP OAuth token."""
+    id: str
+    transaction_id: str
+    user_id: str | None
+    organization_id: str | None
+    mcp_namespace: str
+    provider_key: str
+    access_token: str | None
+    refresh_token: str | None
+    token_type: str | None
+    scope: str | None
+    expires_at: str | None
+    issued_at: str
+    upstream_response: dict[str, Any] | str
+
+
+class MCPOAuthRepository:
+    """Data access helpers for MCP OAuth transactions and tokens."""
+
+    def __init__(self, client: SupabaseClient) -> None:
+        self._client = client
+
+    async def create_transaction(self, payload: dict[str, Any]) -> SupabaseMcpOauthTransaction:
+        """Create a new OAuth transaction."""
+        response = await self._client.insert("mcp_oauth_transactions", payload)
+        return SupabaseMcpOauthTransaction.from_row(response.data[0])
+
+    async def get_transaction(self, transaction_id: UUID) -> SupabaseMcpOauthTransaction:
+        """Get an OAuth transaction by ID."""
+        response = await self._client.select(
+            "mcp_oauth_transactions",
+            columns="*",
+            filters={"id": f"eq.{transaction_id}"},
+        )
+        if not response.data:
+            raise ValueError(f"OAuth transaction not found: {transaction_id}")
+        return SupabaseMcpOauthTransaction.from_row(response.data[0])
+
+    async def get_transaction_by_state(self, state: str) -> SupabaseMcpOauthTransaction:
+        """Get an OAuth transaction by state parameter."""
+        response = await self._client.select(
+            "mcp_oauth_transactions",
+            columns="*",
+            filters={"state": f"eq.{state}"},
+        )
+        if not response.data:
+            raise ValueError(f"OAuth transaction not found for state: {state}")
+        return SupabaseMcpOauthTransaction.from_row(response.data[0])
+
+    async def update_transaction(
+        self, transaction_id: UUID, payload: dict[str, Any]
+    ) -> SupabaseMcpOauthTransaction:
+        """Update an OAuth transaction."""
+        response = await self._client.update(
+            "mcp_oauth_transactions",
+            filters={"id": f"eq.{transaction_id}"},
+            payload=payload,
+        )
+        if not response.data:
+            raise ValueError(f"OAuth transaction not found: {transaction_id}")
+        return SupabaseMcpOauthTransaction.from_row(response.data[0])
+
+    async def store_tokens(self, payload: dict[str, Any]) -> SupabaseMcpOauthToken:
+        """Store OAuth tokens."""
+        response = await self._client.insert("mcp_oauth_tokens", payload)
+        return SupabaseMcpOauthToken.from_row(response.data[0])
+
+    async def get_latest_tokens(
+        self,
+        *,
+        mcp_namespace: str,
+        user_id: UUID | None = None,
+        organization_id: UUID | None = None,
+    ) -> SupabaseMcpOauthToken | None:
+        """Get the latest OAuth tokens for a namespace."""
+        filters: dict[str, str] = {"mcp_namespace": f"eq.{mcp_namespace}"}
+
+        if user_id:
+            filters["user_id"] = f"eq.{user_id}"
+        if organization_id:
+            filters["organization_id"] = f"eq.{organization_id}"
+
+        response = await self._client.select(
+            "mcp_oauth_tokens",
+            columns="*",
+            filters=filters,
+            order=["issued_at.desc"],
+            limit=1,
+        )
+
+        if not response.data:
+            return None
+
+        return SupabaseMcpOauthToken.from_row(response.data[0])
