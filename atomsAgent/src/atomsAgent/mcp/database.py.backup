@@ -1,0 +1,194 @@
+"""
+MCP Server Database Operations
+
+This module provides functions for fetching MCP server configurations from Supabase.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+from typing import Any
+
+from supabase import create_client, Client as SupabaseClient
+
+logger = logging.getLogger(__name__)
+
+
+def get_supabase_client() -> SupabaseClient:
+    """Get Supabase client with credentials from environment"""
+    from atomsAgent.settings.secrets import get_secrets
+    secrets = get_secrets()
+    url = secrets.supabase_url
+    key = secrets.supabase_service_key
+    
+    if not url or not key:
+        raise RuntimeError(
+            "Supabase credentials not configured. "
+            "Set supabase_url and supabase_service_key in config/secrets.yml"
+        )
+    
+    return create_client(url, key)
+
+
+async def get_user_mcp_servers(user_id: str) -> list[dict[str, Any]]:
+    """
+    Fetch user-specific MCP servers from database.
+    
+    Args:
+        user_id: User ID to fetch servers for
+    
+    Returns:
+        List of MCP server configurations
+    """
+    try:
+        supabase = get_supabase_client()
+        
+        # Query user-scoped servers
+        result = supabase.table("mcp_servers").select("*").eq("scope", "user").eq("user_id", user_id).eq("is_enabled", True).execute()
+        
+        servers = result.data or []
+        logger.info(f"Found {len(servers)} user MCP servers for user {user_id}")
+        
+        return servers
+    except Exception as e:
+        logger.error(f"Error fetching user MCP servers: {e}")
+        return []
+
+
+async def get_org_mcp_servers(org_id: str) -> list[dict[str, Any]]:
+    """
+    Fetch organization-specific MCP servers from database.
+    
+    Args:
+        org_id: Organization ID to fetch servers for
+    
+    Returns:
+        List of MCP server configurations
+    """
+    try:
+        supabase = get_supabase_client()
+        
+        # Query organization-scoped servers
+        result = supabase.table("mcp_servers").select("*").eq("scope", "organization").eq("organization_id", org_id).eq("is_enabled", True).execute()
+        
+        servers = result.data or []
+        logger.info(f"Found {len(servers)} organization MCP servers for org {org_id}")
+        
+        return servers
+    except Exception as e:
+        logger.error(f"Error fetching organization MCP servers: {e}")
+        return []
+
+
+async def get_project_mcp_servers(project_id: str) -> list[dict[str, Any]]:
+    """
+    Fetch project-specific MCP servers from database.
+    
+    Args:
+        project_id: Project ID to fetch servers for
+    
+    Returns:
+        List of MCP server configurations
+    """
+    try:
+        supabase = get_supabase_client()
+        
+        # Query project-scoped servers
+        result = supabase.table("mcp_servers").select("*").eq("scope", "project").eq("project_id", project_id).eq("is_enabled", True).execute()
+        
+        servers = result.data or []
+        logger.info(f"Found {len(servers)} project MCP servers for project {project_id}")
+        
+        return servers
+    except Exception as e:
+        logger.error(f"Error fetching project MCP servers: {e}")
+        return []
+
+
+def convert_db_server_to_mcp_config(
+    server: dict[str, Any], *, oauth_token: str | None = None
+) -> dict[str, Any]:
+    """
+    Convert database MCP server record to MCP server configuration format.
+    
+    Args:
+        server: Database record from mcp_servers table
+    
+    Returns:
+        MCP server configuration dict compatible with Claude Agent SDK
+    """
+    transport_type = server.get("transport_type")
+    
+    if transport_type == "stdio":
+        # STDIO transport: command + args
+        config = {
+            "command": server.get("command"),
+            "args": server.get("args", []),
+        }
+        
+        # Add environment variables if present
+        env = server.get("env", {})
+        if env:
+            config["env"] = env
+        
+        return config
+    
+    elif transport_type in ("http", "sse"):
+        # HTTP/SSE transport: URL
+        config = {
+            "url": server.get("url"),
+        }
+        
+        # Add authentication if required
+        if server.get("requires_auth"):
+            auth_type = server.get("auth_type")
+            
+            if auth_type == "bearer":
+                # Bearer token authentication
+                api_key = server.get("api_key")
+                if api_key:
+                    config["headers"] = {
+                        "Authorization": f"Bearer {api_key}"
+                    }
+            
+            elif auth_type == "api_key":
+                # API key authentication
+                api_key = server.get("api_key")
+                if api_key:
+                    config["headers"] = {
+                        "X-API-Key": api_key
+                    }
+            
+            elif auth_type == "oauth":
+                # OAuth authentication - prefer externally provided token
+                access_token = oauth_token or server.get("oauth_access_token")
+                if access_token:
+                    config["headers"] = {"Authorization": f"Bearer {access_token}"}
+
+        return config
+    
+    else:
+        logger.warning(f"Unknown transport type: {transport_type}")
+        return {}
+
+
+async def update_server_usage(server_id: str) -> None:
+    """
+    Update server usage statistics.
+    
+    Args:
+        server_id: MCP server ID
+    """
+    try:
+        supabase = get_supabase_client()
+        
+        # Increment usage count and update last_used_at
+        from datetime import datetime
+        supabase.table("mcp_servers").update({
+            "usage_count": supabase.table("mcp_servers").select("usage_count").eq("id", server_id).execute().data[0]["usage_count"] + 1,
+            "last_used_at": datetime.utcnow().isoformat()
+        }).eq("id", server_id).execute()
+        
+    except Exception as e:
+        logger.error(f"Error updating server usage: {e}")
